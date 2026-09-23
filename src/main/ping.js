@@ -16,7 +16,7 @@
 // NAMI_PING_URL points somewhere on purpose — which is also how the endpoint
 // gets tested by hand against wrangler dev or production.
 
-const PING_URL = 'https://dainami.ai/api/ping';
+const PING_URL = 'https://krishna5567.github.io/bond-website/api/ping';
 
 // The whole decision, with the answer kept inspectable:
 //   { url, payload: { id, version, arch, first }, mintedId } — or null for

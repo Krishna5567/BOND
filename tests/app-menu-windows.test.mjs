@@ -52,14 +52,10 @@ const IN_APP = {
   'send:rail:toggle': /q\('#rail-collapse'\)\.onclick/,
   'send:theme': /q\('#btn-theme'\)\.onclick/,
   'send:agents': /q\('#btn-agents'\)\.onclick = \(\) => openAgentPicker\(\)/,
-  'send:about': /\{ id: 'about', name: 'About'/,
-  'send:update-check': /<button class="btn" id="ab-act"/,
   'link:docs': /q\('#shortcuts-guide', modal\)\.onclick = \(\) => api\.openUrl\(DOCS\.home\)/,
   'link:repo': /data-url="\$\{REPO_URL\}">Source on GitHub/,
   'link:issue': /data-url="\$\{REPO_URL\}\/issues">Ask on GitHub/,
-  'link:releases': /data-url="\$\{esc\(notes\)\}">What's new/,
-  'link:teams': /data-url="\$\{teamsUrl\('about'\)\}"/,
-  'link:maker': /data-url="\$\{makerUrl\('about'\)\}"/,
+  'link:releases': /data-url="\$\{REPO_URL\}\/releases">What's new/,
 };
 // Roles the window itself answers: the caption buttons Windows draws on the
 // sheet, and quitting when the last window closes.

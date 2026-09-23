@@ -101,20 +101,17 @@ test('every command an item sends is one the renderer knows', () => {
   const sent = [];
   const template = build({ send: (c) => sent.push(c) });
   for (const item of menuItems(template)) if (item.click) item.click();
-  assert.ok(sent.length >= 18, `only ${sent.length} items send a command`);
+  assert.ok(sent.length >= 16, `only ${sent.length} items send a command`);
   for (const cmd of sent) {
     const base = cmd.split(':')[0];
     assert.ok(COMMANDS.includes(base), `${cmd} is not a known command`);
   }
 });
 
-test('About Bond opens Bond’s own pane, not the grey macOS panel', () => {
-  const sent = [];
-  const bond = build({ send: (c) => sent.push(c) }).find((m) => m.label === 'Bond');
+test('About Bond is not in the menu', () => {
+  const bond = build().find((m) => m.label === 'Bond');
   const about = bond.submenu.find((i) => i.label === 'About Bond');
-  assert.equal(about.role, undefined, 'role:about is the stock panel');
-  about.click();
-  assert.deepEqual(sent, ['about']);
+  assert.equal(about, undefined);
 });
 
 test('the theme submenu is radios with the saved one ticked', () => {
@@ -149,35 +146,26 @@ test('Help carries the docs first and the ask in the middle', () => {
     '★ Star Bond',
     'Report an Issue',
     'Release Notes',
-    'Bond for Your Team',
-    'Made by Cal',
     'Terms',
   ]);
 });
 
-// Eight items, seven destinations: the repo is opened by both Nami on GitHub
-// and ★ Star Nami, which is deliberate. One is "read the source", the other is
+// Six items, five destinations: the repo is opened by both Bond on GitHub
+// and ★ Star Bond, which is deliberate. One is "read the source", the other is
 // an ask, and GitHub has no separate page for the second.
 test('every url the menu opens is https, and only the repo is opened twice', () => {
   const opened = [];
   const template = build({ open: (u) => opened.push(u) });
   for (const item of menuItems(template)) if (item.click) item.click();
-  assert.equal(opened.length, 8, `${opened.length} urls, expected one per link`);
-  assert.equal(new Set(opened).size, 7, 'two items open the same url');
+  assert.equal(opened.length, 6, `${opened.length} urls, expected one per link`);
+  assert.equal(new Set(opened).size, 5, 'two items open the same url');
   assert.equal(opened.filter((u) => u === LINKS.repo).length, 2);
   for (const url of opened) assert.match(url, /^https:\/\//, `${url} is not https`);
 });
 
-// No telemetry anywhere in Nami, so the UTM is the entire measurement story:
-// it has to actually be on the links whose traffic we want to tell apart.
-// The repo links are deliberately bare — GitHub is not where the analytics is.
-test('the site links carry a help-menu utm; the github ones stay clean', () => {
-  for (const key of ['teams', 'maker', 'docs', 'terms']) {
-    assert.match(LINKS[key], /utm_source=nami-app&utm_medium=help-menu/, `${key} has no utm`);
-  }
-  assert.match(LINKS.teams, /utm_campaign=teams/);
-  for (const key of ['repo', 'issue', 'releases']) {
-    assert.ok(!LINKS[key].includes('utm'), `${key} should stay bare`);
+test('the site links point to Krishna5567 repository', () => {
+  for (const key of ['docs', 'terms', 'repo', 'issue', 'releases']) {
+    assert.match(LINKS[key], /^https:\/\/github\.com\/Krishna5567\/BOND/);
   }
 });
 

@@ -49,7 +49,7 @@ export function connectCatalogHtml({ catalog, connectedIds, esc }) {
         <span class="code" data-kind="service">${esc(s.code)}</span>
         <span class="sv-name">${esc(s.name)}</span>
         <span class="sv-desc">${esc(s.desc)}</span>
-        ${s.id === 'kie' ? '<span class="sv-by">by Dainami</span>' : ''}
+        ${s.id === 'kie' ? '<span class="sv-by">by Bond</span>' : ''}
         <span class="sv-go">${connectedIds.has(s.id) ? '<span class="ok">●</span> connected' : 'connect →'}</span>
       </div>`).join('')}</div>
     <div class="svc-custom" id="svc-own" tabindex="0">

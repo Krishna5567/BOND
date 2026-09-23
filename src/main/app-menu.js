@@ -19,38 +19,19 @@
 // (no electron import, so `node --test` can check it), and one thin function
 // that hands the result to Electron.
 
-const REPO = 'https://github.com/bond-ai/bond';
-const SITE = 'https://nami.dainami.ai';
+const REPO = 'https://github.com/Krishna5567/BOND';
+const SITE = 'https://krishna5567.github.io/bond-website';
 
-// Where the app sends people, and how those visits are told apart later.
-//
-// Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
-// one of three reasons people trust it. UTMs are the whole measurement story
-// instead: they cost nothing, they are visible to anyone who looks at the link,
-// and they are read by analytics that already exist on the other end. The
-// medium names the surface so "did the Help menu ever get used" has an answer.
-//
-// docs and terms are the site's own pages, so they get the same treatment as
-// dainami.ai. releases stays bare with the other GitHub links.
 const LINKS = {
   repo: REPO,
-  issue: `${REPO}/issues/new`,
+  issue: `${REPO}/issues`,
   releases: `${REPO}/releases`,
-  docs: `${SITE}/docs?utm_source=nami-app&utm_medium=help-menu`,
-  terms: `${SITE}/terms?utm_source=nami-app&utm_medium=help-menu`,
-  teams: 'https://dainami.ai/?utm_source=nami-app&utm_medium=help-menu&utm_campaign=teams',
-  maker: 'https://dainami.ai/links?utm_source=nami-app&utm_medium=help-menu',
+  docs: `${REPO}#readme`,
+  terms: `${REPO}/blob/main/LICENSE`,
 };
 
-// Every command a menu item can send, by its base name. A command is a string
-// that has to match a string in app.js, so a typo is a dead menu item that
-// throws nothing at all. Declaring the set lets a test catch that instead of a
-// user finding it.
-//
-// Anything after a colon is an argument: settings:keys, rail:workspace,
-// theme:graphite, open-recent:/Users/x/nami.
 const COMMANDS = [
-  'about', 'update-check', 'settings',
+  'settings',
   'new-session', 'open-folder', 'open-recent', 'new-file', 'new-folder',
   'save', 'reveal', 'close-pane',
   'dictate',
@@ -85,9 +66,6 @@ function buildMenuTemplate({
   // whether a newer one exists and the licence. Settings takes the slot
   // Services used to hold, and ⌘, already did this with no menu to say so.
   const appSubmenu = [
-    cmd(`About ${name}`, 'about'),
-    cmd('Check for Updates', 'update-check'),
-    SEP,
     cmd('Settings', 'settings', { accelerator: 'CommandOrControl+,' }),
     SEP,
     { role: 'hide' },
@@ -210,11 +188,7 @@ function buildMenuTemplate({
     link('Report an Issue', LINKS.issue),
     link('Release Notes', LINKS.releases),
     SEP,
-    link('Bond for Your Team', LINKS.teams),
-    link('Made by Cal', LINKS.maker),
-    SEP,
     link('Terms', LINKS.terms),
-    ...(mac ? [] : [SEP, cmd('About Bond', 'about'), cmd('Check for Updates', 'update-check')]),
   ];
 
   return [

@@ -557,7 +557,7 @@ function showScene(name) {
       rec.cwFeed({ type: 'user', text: 'compare the agents we support and what is left to test' });
       rec.cwFeed({ type: 'message', text: '## Agent roster\n\nAll six connect over the same channel — **one renderer, zero per-agent code**.\n\n'
         + '| Agent | Commands | Modes | Chat |\n|---|---|---|---|\n| claude | 96 | 6 | yes |\n| kimi | 35 | 4 | yes |\n| codex | 6 | 3 | yes |\n| grok | 97 | — | yes |\n\n'
-        + '### Still to verify\n\n- long replies with *mixed* formatting\n  - nested points like this one\n  - links inside bold — **[works now](https://dainami.ai)**\n- [x] tables render clean\n- [ ] half-streamed table mid-reply\n\n'
+        + '### Still to verify\n\n- long replies with *mixed* formatting\n  - nested points like this one\n  - links inside bold — **[works now](https://krishna5567.github.io/bond-website)**\n- [x] tables render clean\n- [ ] half-streamed table mid-reply\n\n'
         + '> Note: raw HTML in a reply stays escaped — it can never run.\n\n'
         + 'Run the probe again after any CLI update: `tools/acp-probe.mjs`\n\n'
         + '```sh\nfor a in claude kimi codex grok; do\n  probe "$a" && echo "$a ok"\ndone\n```\n\n~~hermes pending~~ — verified 26 Aug.' });
@@ -816,17 +816,9 @@ function wireBrandMenu() {
 function runMenuCommand(cmd) {
   const [what, ...rest] = String(cmd || '').split(':');
   const arg = rest.join(':'); // an argument can be a path, and paths carry colons' worth of slashes
-  if (what === 'about') return openSettings('about');
+  if (what === 'about') return openSettings('voice');
   if (what === 'settings') return openSettings(arg || 'voice');
-  if (what === 'update-check') {
-    openSettings('about');
-    // The pane's own button, pressed. Checking has one implementation and it
-    // lives in wireAboutPane, including the part where asking by hand
-    // un-dismisses a version that was waved away.
-    const act = q('#ab-act');
-    if (act) act.click();
-    return undefined;
-  }
+  if (what === 'update-check') return undefined;
   if (what === 'new-session') return openLauncher();
   if (what === 'open-folder') return openFolderDialog();
   if (what === 'open-recent') return arg ? openFolder(arg) : undefined;
@@ -5849,7 +5841,6 @@ const SET_SECTIONS = [
   { id: 'shortcuts', name: 'Shortcuts', lead: 'small moves that make your desk easier to use' },
   { id: 'browser', name: 'Browser', lead: 'browser views your sessions can use' },
   { id: 'usage', name: 'Usage', lead: 'remaining allowance by connected account' },
-  { id: 'about', name: 'About', lead: 'about this copy of Bond' },
 ];
 function openSettings(section) {
   rememberHelpFocus();
@@ -5874,7 +5865,7 @@ function renderSettings() {
       <div class="set-pane" id="set-pane">${
         sec.id === 'voice' ? voicePaneHtml()
           : sec.id === 'look' ? lookPaneHtml()
-            : sec.id === 'browser' ? browsers.settingsHtml() : sec.id === 'usage' ? usagePaneHtml() : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
+            : sec.id === 'browser' ? browsers.settingsHtml() : sec.id === 'usage' ? usagePaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
     </div></div>
     <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">' + esc(W.keyLegend) + '</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on ' + W.thisMac + ' only, nothing syncs.</span>'}
       <button class="btn btn--go" id="set-done">Done</button></div>`);
@@ -5886,7 +5877,6 @@ function renderSettings() {
   if (sec.id === 'voice') wireVoicePane(modal);
   if (sec.id === 'look') wireLookPane(modal);
   if (sec.id === 'keys') wireKeysPane(modal);
-  if (sec.id === 'about') wireAboutPane(modal);
   if (sec.id === 'browser') browsers.wireSettings(modal);
   if (sec.id === 'usage') wireUsagePane(modal);
   if (sec.id === 'shortcuts') {
@@ -6144,96 +6134,7 @@ const DOCS = {
   examples: 'https://github.com/Krishna5567/BOND#readmeexamples/',
   permissions: 'https://github.com/Krishna5567/BOND#readmepermissions/',
 };
-// Where the app sends people who want the person rather than the program.
-//
-// Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
-// one of the three reasons anyone trusts it, and it cannot be un-spent. So the
-// UTM is the entire measurement story: it costs nothing, it is visible to
-// anyone who reads the link, and dainami.ai's own analytics reads it at the
-// other end. `where` names the surface, so "does the empty desk ever get
-// clicked" has an answer without a single byte leaving the machine.
-//
-// GitHub links stay bare on purpose: there is no analytics there to read them.
-const makerUrl = (where) => `https://github.com/Krishna5567/BOND`;
-const teamsUrl = (where) => `https://github.com/Krishna5567/BOND`;
-function updatedOn(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d)) return '';
-  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
-  // hour12 forced: the machine's locale decides otherwise, and "18:55" next to a
-  // handwritten heading reads as a log line rather than a date on a page.
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-    .toLowerCase().replace(/\s+/g, '');
-  return `updated ${day} at ${time}`;
-}
-// Four states, and the difference between the last two is the whole point:
-// GitHub said no, versus GitHub never answered.
-function aboutLine(a) {
-  if (!a || !a.state) return { dot: 'off', text: 'Not checked yet', act: 'Check now' };
-  if (a.state === 'checking') return { dot: 'off', text: 'Checking…', act: 'Check now', busy: true };
-  // a.latest is the one on offer; a.version stays the one running
-  if (a.state === 'update') return { dot: 'new', text: `Bond ${a.latest} is out`, act: 'Download', get: a.url };
-  if (a.state === 'offline') return { dot: 'off', text: "Couldn't reach GitHub", act: 'Try again' };
-  return { dot: 'ok', text: 'Up to date', act: 'Check now' };
-}
-function aboutPaneHtml() {
-  const a = (S.overlay && S.overlay.about) || null;
-  const version = (a && a.version) || S.version || '';
-  const line = aboutLine(a);
-  const notes = version ? `${REPO_URL}/releases/tag/v${encodeURIComponent(version)}` : `${REPO_URL}/releases`;
-  return `<div class="ab-name">Bond${version ? ' ' + esc(version) : ''}</div>
-    <div class="ab-built">${esc(updatedOn((a && a.updatedAt) || S.updatedAt) || 'this copy')}</div>
-    <hr class="ab-rule" />
-    <div class="ab-state">
-      <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
-      <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
-    </div>
-    <div class="ab-star">
-      <button class="btn btn--go" data-url="${REPO_URL}">★ Star Bond on GitHub</button>
-    </div>
-    <div class="ab-links">
-      <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
-      <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
-      <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">Apache License 2.0 <span class="arr">↗</span></a>
-    </div>
-    <hr class="ab-rule" />
-    <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Bond</a>.</div>
-    <div class="ab-copy">© 2026 Bond AI · Apache 2.0 licensed</div>
-    <div class="ab-team">
-      <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Bond for your team? →</button>
-    </div>`;
-}
-function wireAboutPane(modal) {
-  const o = S.overlay;
-  // [data-url] rather than .ab-link[data-url]: the star and team buttons carry
-  // the same attribute, and a selector that only matched the text links would
-  // have left both of them silently dead.
-  modal.querySelectorAll('[data-url]').forEach((el) => {
-    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
-  });
-  const act = q('#ab-act', modal);
-  if (!act) return;
-  act.onclick = async () => {
-    const a = o.about;
-    // Downloading from here is the same download as the bar's, not a second
-    // one: re-arm the bar with what the pane is showing and let the progress
-    // land there, so closing Settings does not lose sight of it.
-    if (a && a.state === 'update' && a.url) {
-      offered = { version: a.latest, url: a.url };
-      paintUpdate('downloading', { percent: 0, version: a.latest });
-      await api.downloadUpdate();
-      return;
-    }
-    o.about = { ...(a || {}), state: 'checking' };
-    renderOverlay();
-    const res = await api.updateStatus();
-    // Asking by hand un-dismisses: whatever was waved away before is fair game
-    // again, or the bar could never come back for that version.
-    if (res && res.state === 'update') localStorage.removeItem(SKIPPED_UPDATE);
-    if (isSettingsOpen()) { S.overlay.about = res || { state: 'offline' }; renderOverlay(); }
-  };
-}
+
 
 // ---- Models ----------------------------------------------------------------
 // ---- Keys — named secrets for permitted agents and Voice -------------------
@@ -6753,6 +6654,8 @@ function renderQuickStart() {
   const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
     <div class="qs-body">${body}</div>
     <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
+    <a class="qs-link" href="#" data-url="${REPO_URL}">Source on GitHub</a>
+    <a class="qs-link" href="#" data-url="${REPO_URL}/releases">What's new</a>
     <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
 
   wireHelpDialog(modal);
