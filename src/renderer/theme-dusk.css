@@ -122,3 +122,11 @@ body[data-theme="dusk"] .lib-new-grid .ac-desc {
   color: #38bdf8;
 }
 
+body[data-theme="dusk"] .rail-tab-img,
+body[data-theme="dusk"] .btn-deck-img,
+body[data-theme="dusk"] .card-ico-img {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+

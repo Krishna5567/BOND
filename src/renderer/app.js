@@ -1,6 +1,7 @@
 import { createMcpSetup, CONNECT_OVERLAYS, startConnectorInstall, prereqNoteHtml } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
 import { CARD_AGENT_B64, CARD_SKILL_B64, CARD_MCP_B64 } from './assets/cards-b64.js';
+import { TAB_FLEET_B64, TAB_EXPLORER_B64, TAB_EXTENSIONS_B64 } from './assets/tabs-b64.js';
 // Bond — the agent workbench (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a tile in a grid you
 // can focus, reorder, and expand. Workspace is a live explorer + editor. Vanilla DOM; tiles
@@ -924,8 +925,8 @@ function buildShell() {
               </button>
             </div>
             <div class="rail-deck-actions">
-              <button class="btn btn--go btn-dispatch" id="btn-new" title="Dispatch new agent session ${kbd('new-session')}">${helpIcon('zap')} Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
-              <button class="btn btn-fleet" id="btn-agents" title="Browse Agent Models & Harnesses ${kbd('agents')}">${helpIcon('bot')} Fleet Models<span class="kb"> ${kbd('agents')}</span></button>
+              <button class="btn btn--go btn-dispatch" id="btn-new" title="Dispatch new agent session ${kbd('new-session')}"><img class="btn-deck-img" src="${TAB_FLEET_B64}" alt="" />Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
+              <button class="btn btn-fleet" id="btn-agents" title="Browse Agent Models & Harnesses ${kbd('agents')}"><img class="btn-deck-img" src="${TAB_EXPLORER_B64}" alt="" />Fleet Models<span class="kb"> ${kbd('agents')}</span></button>
             </div>
             <div class="rail-deck-view">
               <div class="viewsw" id="viewsw" role="group" aria-label="Workspace view" title="Overview: full multi-agent layout grid. Dual-Pane: side-by-side session and code editor.">
@@ -940,9 +941,9 @@ function buildShell() {
             </div>
           </div>
           <div class="rail-tabs">
-            <button class="rail-tab active" data-tab="sessions"><span class="rail-tab-ico">⚡</span>Active Fleet</button>
-            <button class="rail-tab" data-tab="workspace"><span class="rail-tab-ico">📁</span>Explorer</button>
-            <button class="rail-tab" data-tab="library"><span class="rail-tab-ico">🧩</span>Extensions</button>
+            <button class="rail-tab active" data-tab="sessions"><span class="rail-tab-ico"><img class="rail-tab-img" src="${TAB_FLEET_B64}" alt="" /></span>Active Fleet</button>
+            <button class="rail-tab" data-tab="workspace"><span class="rail-tab-ico"><img class="rail-tab-img" src="${TAB_EXPLORER_B64}" alt="" /></span>Explorer</button>
+            <button class="rail-tab" data-tab="library"><span class="rail-tab-ico"><img class="rail-tab-img" src="${TAB_EXTENSIONS_B64}" alt="" /></span>Extensions</button>
           </div>
           <div id="rail-content"></div>
         </div>
@@ -2252,10 +2253,10 @@ function kindLabel(p) {
 // with folders does not want to be nudged into making another.
 function emptyDeskHtml() {
   const first = !S.recents.length;
-  const make = `<button class="btn ${first ? 'btn--go ' : ''}lane-cta" id="lane-make">➕ Initialize Workspace</button>`;
+  const make = `<button class="btn ${first ? 'btn--go ' : ''}lane-cta" id="lane-make"><img class="btn-deck-img" src="${TAB_FLEET_B64}" alt="" />Initialize Workspace</button>`;
   const open = first
-    ? `<button class="btn lane-cta" id="lane-open">📁 Select Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`
-    : `<button class="btn btn--go lane-cta" id="lane-open">📁 Open Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`;
+    ? `<button class="btn lane-cta" id="lane-open"><img class="btn-deck-img" src="${TAB_EXPLORER_B64}" alt="" />Select Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`
+    : `<button class="btn btn--go lane-cta" id="lane-open"><img class="btn-deck-img" src="${TAB_EXPLORER_B64}" alt="" />Open Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`;
   return `<div class="lane-empty">
       <div class="bond-deck-badge"><span class="deck-dot"></span>WORKSPACE INITIALIZATION REQUIRED</div>
       <div class="big">Select a Project Directory to Begin</div>
@@ -2293,22 +2294,22 @@ function renderGrid() {
           <div class="big">Autonomous Workspace Ready</div>
           <div class="hint">Dispatch multi-model AI agents, run terminal pipelines, or edit project files side-by-side.</div>
           <div class="lane-ctas">
-            <button class="btn btn--go lane-cta" id="lane-new">⚡ Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
-            <button class="btn lane-cta" id="lane-open">📁 Switch Directory<span class="kb"> ${kbd('open-folder')}</span></button>
+            <button class="btn btn--go lane-cta" id="lane-new"><img class="btn-deck-img" src="${TAB_FLEET_B64}" alt="" />Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
+            <button class="btn lane-cta" id="lane-open"><img class="btn-deck-img" src="${TAB_EXPLORER_B64}" alt="" />Switch Directory<span class="kb"> ${kbd('open-folder')}</span></button>
           </div>
           <div class="bond-feature-cards">
             <div class="b-card">
-              <div class="b-card-ico">🤖</div>
+              <div class="b-card-ico"><img class="card-ico-img" src="${TAB_FLEET_B64}" alt="" /></div>
               <div class="b-card-title">Agent Fleet</div>
               <div class="b-card-desc">Claude, Grok, Codex, Gemini, Hermes & Ollama</div>
             </div>
             <div class="b-card">
-              <div class="b-card-ico">⚡</div>
+              <div class="b-card-ico"><img class="card-ico-img" src="${TAB_EXPLORER_B64}" alt="" /></div>
               <div class="b-card-title">Real PTY Grids</div>
               <div class="b-card-desc">Low-latency terminal execution with deep file watchers</div>
             </div>
             <div class="b-card">
-              <div class="b-card-ico">🧩</div>
+              <div class="b-card-ico"><img class="card-ico-img" src="${TAB_EXTENSIONS_B64}" alt="" /></div>
               <div class="b-card-title">MCP Extensible</div>
               <div class="b-card-desc">Seamless tool integration via Model Context Protocol</div>
             </div>

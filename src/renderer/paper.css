@@ -265,7 +265,31 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .btn-fleet svg, .btn-dispatch svg { width: 13px; height: 13px; }
 .topbar-actions-group .btn-ctrl { display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; }
 .topbar-actions-group .btn-ctrl svg { width: 14px; height: 14px; }
-.rail-tab .rail-tab-ico { margin-right: 5px; font-size: 11px; display: inline-block; }
+.rail-tab .rail-tab-ico { margin-right: 6px; display: inline-flex; align-items: center; vertical-align: middle; }
+.rail-tab-img {
+  width: 17px;
+  height: 17px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}
+.btn-deck-img {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+.card-ico-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  margin: 0 auto;
+}
 
 .project-chip {
   display: flex; align-items: center; gap: 10px;

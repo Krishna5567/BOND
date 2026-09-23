@@ -566,3 +566,11 @@ body[data-theme="operator"] .lib-new-grid .ac-desc {
   letter-spacing: 0.04em;
 }
 
+body[data-theme="operator"] .rail-tab-img,
+body[data-theme="operator"] .btn-deck-img,
+body[data-theme="operator"] .card-ico-img {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+
