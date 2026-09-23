@@ -1,5 +1,6 @@
 import { createMcpSetup, CONNECT_OVERLAYS, startConnectorInstall, prereqNoteHtml } from './mcp-setup.mjs';
 import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
+import { CARD_AGENT_B64, CARD_SKILL_B64, CARD_MCP_B64 } from './assets/cards-b64.js';
 // Bond — the agent workbench (renderer, terminal-first).
 // Every session is a real PTY (claude / shell / any harness), shown as a tile in a grid you
 // can focus, reorder, and expand. Workspace is a live explorer + editor. Vanilla DOM; tiles
@@ -1256,7 +1257,8 @@ function toggleProjectsPop() {
 
 // ---- theme popover (◐ in the topbar) ---------------------------------------
 const THEME_OPTIONS = [
-  { id: 'operator', name: 'operator', desc: 'dark ops' },
+  { id: 'operator', name: 'operator', desc: 'dusk ops · crisp & sleek' },
+  { id: 'dusk', name: 'dusk', desc: 'soft dark' },
 ];
 function positionThemePop() {
   const pop = q('.theme-pop'), zone = q('#theme-zone');
@@ -1939,9 +1941,9 @@ async function refreshServices() {
 }
 const TYPE_CHIP = { agent: { code: 'AG', kind: 'agent' }, skill: { code: 'SK', kind: 'skill' }, command: { code: 'CM', kind: 'command' } };
 const LIB_MAKE = [
-  { key: 'agent', icon: 'agent', code: 'AG', kind: 'agent', name: 'Agent', sub: 'craft', title: 'Craft an autonomous agent' },
-  { key: 'skill', icon: 'skill', code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Teach an agent skill' },
-  { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'link', title: 'Link MCP tool server' },
+  { key: 'agent', icon: 'agent', img: CARD_AGENT_B64, code: 'AG', kind: 'agent', name: 'Agent', sub: 'craft', title: 'Craft an autonomous agent' },
+  { key: 'skill', icon: 'skill', img: CARD_SKILL_B64, code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Teach an agent skill' },
+  { key: 'mcp', icon: 'mcp', img: CARD_MCP_B64, code: 'MC', kind: 'service', name: 'MCP', sub: 'link', title: 'Link MCP tool server' },
 ];
 function libItemTag(i) {
   if (i.type === 'skill' && i.scope === 'project') {
@@ -2112,7 +2114,7 @@ function refreshLibraryRail(c) {
   };
   const make = document.createElement('div'); make.className = 'lib-new-grid';
   make.innerHTML = LIB_MAKE.map((m) => `<div class="add-card lib-new" data-make="${esc(m.key)}" tabindex="0" role="button" title="${esc(m.title)}">
-      ${chipHtml({ key: m.icon, code: m.code, kind: m.kind })}
+      <div class="lib-card-pic-wrap"><img class="lib-card-pic" src="${m.img}" alt="${esc(m.name)}" /></div>
       <span class="ac-name">${esc(m.name)}</span><span class="ac-desc">${esc(m.sub)}</span></div>`).join('');
   c.appendChild(make);
   make.querySelectorAll('.lib-new').forEach((el) => {

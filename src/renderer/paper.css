@@ -2124,10 +2124,27 @@ body[data-platform="win32"] .btn .kb { display: none; }
 /* ---- create wizard: three steps, one decision each ---- */
 /* the three ＋ cards under the Library title */
 .lib-new-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 14px 10px; }
-.lib-new-grid .add-card { padding: 8px 8px 9px; gap: 2px; }
-.lib-new-grid .add-card .code { width: 22px; height: 22px; }
-.lib-new-grid .ac-name { font-size: 11.5px; }
-.lib-new-grid .ac-desc { font-size: 9.5px; line-height: 1.35; }
+.lib-new-grid .add-card { padding: 8px 6px 9px; gap: 3px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.lib-new-grid .lib-card-pic-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.lib-new-grid .lib-card-pic {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.lib-new-grid .ac-name { font-size: 11.5px; font-weight: 700; color: var(--ink); margin-top: 2px; }
+.lib-new-grid .ac-desc { font-size: 9.5px; line-height: 1.35; color: #38bdf8; }
 
 /* ---- the create sheet's stacked fields ----
    Label above, field the full sheet width. NOT .ni-row — the settings pane

@@ -12,25 +12,25 @@ body[data-theme="operator"] {
      borders sat ~1.2:1 against the panel and half the chrome was written
      below 4.5:1. Same ladder, every rung raised; the accent never moved.
      Approved from art/reference/operator-lift-mockup.html. */
-  --desk: #121212;
-  --sheet-hi: #181818;
-  --sheet-lo: #181818;
-  --paper: #1f1f1f;
-  --paper-2: #262626;
-  --paper-3: #232323;
-  --ink: #eae7e1;
-  --muted: #bcb9b2;
-  --muted-2: #aaa79f;
-  --muted-3: #a19e97;
-  --faint: #98958e;
-  --line: #424242;
-  --dash: #3a3a3a;
-  --dash-dark: #4f4f4f;
-  --field: #151515;          /* wells sink below the panel; operator steps surfaces, never glows */
-  --field-line: #5f5f5f;
-  --rail: #161616;
-  --hover: #2c2c2c;
-  --menu-sheet: #1f1f1f; /* opaque paper — menus need no extra fill here */
+  --desk: #181b22;
+  --sheet-hi: #1e222b;
+  --sheet-lo: #1a1e26;
+  --paper: #222632;
+  --paper-2: #2a2f3e;
+  --paper-3: #262b37;
+  --ink: #f8fafc;
+  --muted: #cbd5e1;
+  --muted-2: #94a3b8;
+  --muted-3: #64748b;
+  --faint: #475569;
+  --line: #374151;
+  --dash: #2d3748;
+  --dash-dark: #4b5563;
+  --field: #13161c;          /* wells sink below the panel; crisp and deep */
+  --field-line: #4b5563;
+  --rail: #191c24;
+  --hover: #2e3544;
+  --menu-sheet: #222632; /* opaque paper — menus need no extra fill here */
   --green: #00A86B;          /* primary action → Bond emerald */
   --green-dark: #00875a;
   --green-ok: #10B981;
@@ -78,7 +78,7 @@ body[data-theme="operator"] {
 }
 
 /* ---- ground ------------------------------------------------------------- */
-body[data-theme="operator"] { background: #121212; }
+body[data-theme="operator"] { background: #181b22; }
 body[data-theme="operator"] a { color: #6ea8ff; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border: 3px solid transparent; background-clip: content-box; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); background-clip: content-box; }
@@ -500,3 +500,69 @@ body[data-theme="operator"] .image-insert, body[data-theme="operator"] .image-re
 /* Shortcut reference follows this theme’s type and link treatment. */
 body[data-theme="operator"] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: var(--op-mono); font-size: 18px; text-transform: uppercase; }
 body[data-theme="operator"] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }
+
+/* ---- Settings Modal (Dusk + Operator Hybrid) ----------------------------- */
+body[data-theme="operator"] .modal--settings {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+body[data-theme="operator"] .modal--settings .set-nav .rail-tab {
+  border-radius: 9999px;
+  transition: all 0.15s ease;
+}
+body[data-theme="operator"] .modal--settings .set-nav .rail-tab.active {
+  background: #f87171;
+  color: #181b21;
+  border-color: #f87171;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.35);
+}
+body[data-theme="operator"] .modal--settings #set-done {
+  background: #f87171;
+  color: #181b21;
+  border-color: #f87171;
+  border-radius: 9999px;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.35);
+}
+body[data-theme="operator"] .modal--settings #set-done:hover {
+  background: #ff8585;
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.5);
+}
+
+/* ---- Library 3-card Grid (Agent, Skill, MCP) ------------------------------ */
+body[data-theme="operator"] .lib-new-grid .add-card {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 6px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+body[data-theme="operator"] .lib-new-grid .add-card:hover {
+  border-color: var(--op-accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 168, 107, 0.25);
+  transform: translateY(-1px);
+}
+body[data-theme="operator"] .lib-new-grid .lib-card-pic-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+body[data-theme="operator"] .lib-new-grid .ac-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-top: 4px;
+}
+body[data-theme="operator"] .lib-new-grid .ac-desc {
+  font-size: 10px;
+  font-weight: 600;
+  color: #38bdf8;
+  letter-spacing: 0.04em;
+}
+

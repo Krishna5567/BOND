@@ -39,6 +39,6 @@ docs/superpowers/
 # app is inline SVG, and the icon the installer uses is build/icon.png. Every
 # clone was paying for them. The design they document is now the app itself,
 # and docs/media holds the live screenshots.
-assets/
+/assets/
 docs/reference/
 acp-tools/
