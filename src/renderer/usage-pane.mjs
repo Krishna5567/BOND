@@ -1,0 +1,118 @@
+import { currentPlatform } from './paths.mjs';
+import { words } from './platform-words.mjs';
+
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const validPercent = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 100;
+const validTime = (n) => Number.isFinite(n) && !Number.isNaN(new Date(n).valueOf());
+const PROVIDER_CARDS = new Set(['claude', 'codex', 'opencode', 'grok', 'antigravity', 'hermes', 'gemini']);
+
+// Group installed CLIs by provider. Custom feeds stay on their account id so
+// two adapters that happen to share a display name never add together.
+export function groupUsage(accounts = []) {
+  const groups = new Map(), unavailable = [];
+  for (const row of accounts) {
+    if (row.status === 'unavailable' || (!row.accountId && !validPercent(row.remaining))) { unavailable.push(row); continue; }
+    const key = PROVIDER_CARDS.has(row.providerId) ? row.providerId : (row.accountId || row.id);
+    if (!groups.has(key)) groups.set(key, { id: key, name: row.providerName || row.name, accountName: row.accountName || '', windows: [] });
+    groups.get(key).windows.push(row);
+  }
+  return { groups: [...groups.values()], unavailable };
+}
+
+export function tightestWindow(windows = []) {
+  const reported = windows.filter((row) => row.status !== 'stale' && validPercent(row.remaining));
+  const pool = reported.length ? reported : windows;
+  return pool.reduce((best, row) => validPercent(row.remaining) && (!validPercent(best.remaining) || row.remaining < best.remaining) ? row : best);
+}
+
+function metaHtml(row) {
+  const reported = row.status !== 'stale' && validPercent(row.remaining);
+  const metadata = [];
+  if (row.source) metadata.push(esc(row.source));
+  if (validTime(row.resetsAt)) metadata.push('Resets ' + esc(new Date(row.resetsAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })));
+  if (validTime(row.checkedAt)) metadata.push('Checked ' + esc(new Date(row.checkedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
+  if (!reported && row.detail) metadata.push(esc(row.detail));
+  if (!row.source && reported && row.detail) metadata.push(esc(row.detail));
+  return metadata.length ? `<div class="usage-meta">${metadata.map((text) => `<span>${text}</span>`).join('')}</div>` : '';
+}
+
+function windowHtml(row) {
+  const reported = row.status !== 'stale' && validPercent(row.remaining);
+  const label = row.windowLabel || row.name;
+  const value = reported ? `${row.remaining}% left` : row.status === 'stale' ? 'Stale report' : 'Unavailable';
+  return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${esc(label)}${row.scopeLabel ? `<small>${esc(row.scopeLabel)}</small>` : ''}</span><span class="usage-value${row.status === 'stale' ? ' usage-stale' : ''}">${value}</span></div>${reported ? meter(row) : ''}${metaHtml(row)}</div>`;
+}
+
+function meter(row) {
+  const label = row.windowLabel || row.name;
+  return `<div class="usage-bar" role="meter" aria-label="${esc(label)} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${row.remaining}"><span style="width:${row.remaining}%"></span></div>`;
+}
+
+
+const labelOf = (row) => row.windowLabel || row.name;
+// A window is folded away only when it is genuinely secondary: a spend limit,
+// or a window that has expired or has no number. Everything a CLI is currently
+// counting against stays on the card, in the open.
+const secondaryWindow = (row) => row.windowKey === 'spend_limit' || row.status === 'stale' || !validPercent(row.remaining);
+const byTightest = (a, b) => (validPercent(a.remaining) ? a.remaining : Infinity) - (validPercent(b.remaining) ? b.remaining : Infinity);
+
+function foldedSummary(rows) {
+  const names = rows.map(labelOf);
+  return names.length <= 3 ? names.join(' · ') : `${names.slice(0, 2).join(' · ')} and ${names.length - 2} more`;
+}
+
+function cardHtml(group) {
+  const tightest = tightestWindow(group.windows);
+  const rest = group.windows.filter((row) => row !== tightest).sort(byTightest);
+  const open = rest.filter((row) => !secondaryWindow(row));
+  const folded = rest.filter(secondaryWindow);
+  const reported = tightest.status !== 'stale' && validPercent(tightest.remaining);
+  const value = reported ? `${tightest.remaining}% left` : tightest.status === 'stale' ? 'Stale report' : 'Unavailable';
+  return `<section class="usage-card"><div class="usage-card-head"><strong>${esc(group.name)}</strong><span class="usage-value${tightest.status === 'stale' ? ' usage-stale' : ''}">${esc(labelOf(tightest))} · ${value}</span></div>${reported ? meter(tightest) : ''}${metaHtml(tightest)}${open.length ? `<div class="usage-windows">${open.map(windowHtml).join('')}</div>` : ''}${folded.length ? `<details class="usage-more"><summary>${esc(foldedSummary(folded))}</summary>${folded.map(windowHtml).join('')}</details>` : ''}</section>`;
+}
+
+function quietCard(row, here) {
+  return `<section class="usage-card usage-card--quiet"><div class="usage-card-head"><strong>${esc(row.providerName || row.name)}</strong><span class="usage-value">${esc(row.detail || `No quota on ${here} yet`)}</span></div></section>`;
+}
+
+function unavailableBlock(rows, here) {
+  if (!rows.length) return '';
+  const label = rows.length === 1
+    ? (rows[0].detail || `Sign in with ${rows[0].providerName || rows[0].name}`)
+    : `${rows.length} CLIs have nothing to show yet`;
+  return `<details class="usage-unavailable"><summary>${esc(label)}</summary>${rows.map((row) => quietCard(row, here)).join('')}</details>`;
+}
+
+// `platform` only chooses the words: "this Mac" or "this PC".
+export function usageContent(result = {}, platform = currentPlatform()) {
+  const { groups, unavailable } = groupUsage(result.accounts);
+  const here = words(platform).thisMac;
+  return `<div class="usage-tools"><p class="bs-note">Allowance from CLIs installed on ${here}.</p><button class="btn btn--small" id="usage-refresh">Refresh</button></div>
+    ${groups.map(cardHtml).join('')}
+    ${unavailableBlock(unavailable, here)}
+    ${!groups.length && !unavailable.length ? '<p class="bs-note">No coding CLI is installed yet.</p>' : ''}`;
+}
+
+export function usagePaneHtml() {
+  return '<div id="usage-body" class="usage-settings"><p class="bs-note" role="status">Checking account usage…</p></div>';
+}
+
+export async function wireUsagePane(modal, { api, toast }) {
+  const host = modal.querySelector('#usage-body');
+  if (!host) return;
+  const token = {}; host._usageRequest = token;
+  const current = () => host.isConnected && host._usageRequest === token;
+  const refresh = host.querySelector('#usage-refresh');
+  if (refresh) { refresh.disabled = true; refresh.textContent = 'Checking…'; }
+  try {
+    const result = await api.usageRead();
+    if (result?.error) throw new Error(result.error);
+    if (!current()) return;
+    host.innerHTML = usageContent(result);
+    host.querySelector('#usage-refresh').onclick = () => wireUsagePane(modal, { api, toast });
+  } catch (_) {
+    if (!current()) return;
+    host.innerHTML = '<p class="bs-note" role="alert">Could not read usage.</p><button class="btn btn--small">Retry</button>';
+    host.querySelector('button').onclick = () => wireUsagePane(modal, { api, toast });
+  }
+}

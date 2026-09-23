@@ -1,0 +1,336 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const {
+  parseAgentMd, renderCopy, isDelivered, MARKER,
+  readAgentMasters, agentDeliveryPlan, deliverAgents, deliveryState, liftToMaster, importToMaster, sweepCopies,
+} = require('../src/main/agent-master.js');
+
+// The product builds every path with path.join, so on Windows they come back
+// as \proj\agents\x.md. Fixture keys and expected values go through the same
+// door: P() changes nothing on a Mac and turns the separators on Windows.
+const P = (p) => path.normalize(p);
+
+function memIo(seed = {}) {
+  const files = { ...seed };
+  return {
+    read: (f) => { if (!(f in files)) throw new Error('ENOENT ' + f); return files[f]; },
+    write: (f, t) => { files[f] = t; },
+    exists: (f) => f in files,
+    remove: (f) => { delete files[f]; },
+    list: (dir) => Object.keys(files).filter((f) => path.dirname(f) === dir).map((f) => path.basename(f)),
+    files,
+  };
+}
+
+const PROJ = '/proj';
+const MASTER_MD = `---
+name: release-scribe
+description: Turns git history into release notes.
+tools: Read, Grep, Bash
+model: sonnet
+---
+
+You are the release scribe. Keep the README honest.
+`;
+
+// ---- parse ------------------------------------------------------------------
+
+test('parseAgentMd reads the superset frontmatter and the body', () => {
+  const a = parseAgentMd(MASTER_MD);
+  assert.equal(a.name, 'release-scribe');
+  assert.equal(a.description, 'Turns git history into release notes.');
+  assert.equal(a.tools, 'Read, Grep, Bash');
+  assert.equal(a.model, 'sonnet');
+  assert.equal(a.mode, '');
+  assert.match(a.body, /^You are the release scribe/);
+});
+
+test('parseAgentMd tolerates a missing frontmatter block', () => {
+  const a = parseAgentMd('just a prompt\n');
+  assert.equal(a.name, '');
+  assert.match(a.body, /just a prompt/);
+});
+
+// ---- dialect copies ---------------------------------------------------------
+
+test('claude copy keeps tools and model, drops mode, and carries the marker', () => {
+  const text = renderCopy('claude', 'release-scribe', parseAgentMd(MASTER_MD.replace('---\n\n', 'mode: subagent\n---\n\n')));
+  assert.match(text, /^---\nname: release-scribe\n/);
+  assert.match(text, /tools: Read, Grep, Bash/);
+  assert.match(text, /model: sonnet/);
+  assert.ok(!text.includes('mode:'), 'mode is not Claude dialect');
+  assert.ok(isDelivered(text));
+  assert.match(text, /edit that file/);
+});
+
+test('opencode copy speaks its dialect: description + mode, no name key', () => {
+  const text = renderCopy('opencode', 'release-scribe', parseAgentMd(MASTER_MD));
+  assert.match(text, /description: Turns git history/);
+  // `all`, not `subagent`: probe-proven that subagent-mode agents are not
+  // selectable by `opencode --agent` — the session silently falls back to
+  // `build`. `all` launches AND stays @-mentionable.
+  assert.match(text, /mode: all/);
+  assert.ok(!/^name:/m.test(text), 'opencode names agents by filename');
+  assert.ok(isDelivered(text));
+});
+
+test('codex copy is TOML with the prompt as developer_instructions', () => {
+  const text = renderCopy('codex', 'release-scribe', parseAgentMd(MASTER_MD));
+  assert.match(text, /^# made by Nami from agents\/release-scribe\.md/);
+  assert.match(text, /name = "release-scribe"/);
+  assert.match(text, /description = "Turns git history into release notes\."/);
+  assert.match(text, /developer_instructions = """\nYou are the release scribe/);
+});
+
+test('isDelivered is false for a hand-made file', () => {
+  assert.equal(isDelivered(MASTER_MD), false);
+});
+
+// ---- masters + plan ---------------------------------------------------------
+
+test('readAgentMasters lists agents/ and parses each', () => {
+  const io = memIo({ [P('/proj/agents/release-scribe.md')]: MASTER_MD, [P('/proj/agents/notes.txt')]: 'x' });
+  const masters = readAgentMasters({ projectPath: PROJ, io });
+  assert.equal(masters.length, 1);
+  assert.equal(masters[0].slug, 'release-scribe');
+  assert.equal(masters[0].agent.name, 'release-scribe');
+});
+
+test('agentDeliveryPlan: one copy per writing tool, cursor rides claude, hermes named', () => {
+  const plan = agentDeliveryPlan({
+    slug: 'release-scribe',
+    agentIds: ['claude', 'codex', 'opencode', 'gemini', 'kimi', 'cursor', 'hermes'],
+    projectPath: PROJ,
+  });
+  const by = Object.fromEntries(plan.map((s) => [s.agent, s]));
+  assert.equal(by.claude.file, P('/proj/.claude/agents/release-scribe.md'));
+  assert.equal(by.opencode.file, P('/proj/.opencode/agents/release-scribe.md'));
+  assert.equal(by.gemini.file, P('/proj/.gemini/agents/release-scribe.md'));
+  assert.equal(by.kimi.file, P('/proj/.kimi-code/agents/release-scribe.md'));
+  assert.equal(by.codex.file, P('/proj/.codex/agents/release-scribe.toml'));
+  assert.equal(by.cursor.kind, 'via');
+  assert.equal(by.cursor.via, 'claude');
+  assert.equal(by.hermes.kind, 'none');
+});
+
+// ---- deliver ----------------------------------------------------------------
+
+test('deliverAgents writes marked copies but never overwrites a hand-made file', () => {
+  const io = memIo({
+    [P('/proj/agents/release-scribe.md')]: MASTER_MD,
+    [P('/proj/.claude/agents/release-scribe.md')]: '---\nname: release-scribe\n---\ntheir own version\n',
+  });
+  const results = deliverAgents({ projectPath: PROJ, agentIds: ['claude', 'opencode', 'codex'], io });
+  assert.match(io.files[P('/proj/.opencode/agents/release-scribe.md')], /mode: all/);
+  assert.match(io.files[P('/proj/.codex/agents/release-scribe.toml')], /developer_instructions/);
+  assert.match(io.files[P('/proj/.claude/agents/release-scribe.md')], /their own version/, 'hand-made wins');
+  const claude = results.find((r) => r.agent === 'claude' && r.slug === 'release-scribe');
+  assert.equal(claude.ok, false);
+  assert.equal(claude.theirs, true);
+});
+
+test('deliverAgents regenerates a previously marked copy', () => {
+  const io = memIo({ [P('/proj/agents/release-scribe.md')]: MASTER_MD });
+  deliverAgents({ projectPath: PROJ, agentIds: ['claude'], io });
+  io.files[P('/proj/agents/release-scribe.md')] = MASTER_MD.replace('Keep the README honest.', 'Keep the CHANGELOG honest.');
+  deliverAgents({ projectPath: PROJ, agentIds: ['claude'], io });
+  assert.match(io.files[P('/proj/.claude/agents/release-scribe.md')], /CHANGELOG honest/);
+});
+
+// ---- adopt ------------------------------------------------------------------
+
+test('liftToMaster raises a claude agent to the drawer and marks the original as a copy', () => {
+  const theirs = '---\nname: code-reviewer\ndescription: Reviews diffs.\ntools: Read, Grep\n---\n\nReview carefully.\n';
+  const io = memIo({ [P('/proj/.claude/agents/code-reviewer.md')]: theirs });
+  const res = liftToMaster({ filePath: P('/proj/.claude/agents/code-reviewer.md'), platform: 'claude', projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.equal(res.masterPath, P('/proj/agents/code-reviewer.md'));
+  assert.match(io.files[P('/proj/agents/code-reviewer.md')], /description: Reviews diffs\./);
+  assert.ok(!isDelivered(io.files[P('/proj/agents/code-reviewer.md')]), 'the master is nobody\'s copy');
+  assert.ok(isDelivered(io.files[P('/proj/.claude/agents/code-reviewer.md')]), 'original is now a marked copy');
+});
+
+test('liftToMaster maps opencode mode into the superset and refuses a name clash', () => {
+  const io = memIo({
+    [P('/proj/.opencode/agents/tester.md')]: '---\ndescription: Runs tests.\nmode: subagent\n---\nRun them.\n',
+    [P('/proj/agents/tester.md')]: MASTER_MD,
+  });
+  const res = liftToMaster({ filePath: P('/proj/.opencode/agents/tester.md'), platform: 'opencode', projectPath: PROJ, io });
+  assert.equal(res.ok, false, 'a master already owns this name');
+  const io2 = memIo({ [P('/proj/.opencode/agents/tester.md')]: '---\ndescription: Runs tests.\nmode: subagent\n---\nRun them.\n' });
+  const res2 = liftToMaster({ filePath: P('/proj/.opencode/agents/tester.md'), platform: 'opencode', projectPath: PROJ, io: io2 });
+  assert.equal(res2.ok, true);
+  assert.match(io2.files[P('/proj/agents/tester.md')], /mode: subagent/);
+});
+
+// ---- sweep ------------------------------------------------------------------
+
+test('sweepCopies removes marked copies only, and reports what it left', () => {
+  const io = memIo({ [P('/proj/agents/release-scribe.md')]: MASTER_MD });
+  deliverAgents({ projectPath: PROJ, agentIds: ['claude', 'codex'], io });
+  io.files[P('/proj/.opencode/agents/release-scribe.md')] = 'hand-made, same name\n';
+  const res = sweepCopies({ projectPath: PROJ, slug: 'release-scribe', io });
+  assert.ok(!(P('/proj/.claude/agents/release-scribe.md') in io.files));
+  assert.ok(!(P('/proj/.codex/agents/release-scribe.toml') in io.files));
+  assert.ok(P('/proj/.opencode/agents/release-scribe.md') in io.files, 'unmarked file survives');
+  assert.deepEqual(res.left, [P('/proj/.opencode/agents/release-scribe.md')]);
+});
+
+test('antigravity delivers to the user-scope gemini folder, the only one agy reads', () => {
+  const plan = agentDeliveryPlan({ slug: 'x', agentIds: ['antigravity'], projectPath: PROJ, homeDir: P('/home/cal') });
+  assert.equal(plan[0].file, P('/home/cal/.gemini/agents/x.md'));
+});
+
+// ---- the tool: hint ---------------------------------------------------------
+// Which tool a master prefers is Nami's own business. It rides in the superset
+// frontmatter so it travels with the repo, and it must never reach a copy — no
+// tool has ever heard of the key, and an unknown key in a dialect file is a
+// change in somebody else's format.
+
+test('tool: is parsed off the master and is not the same field as tools:', () => {
+  const a = parseAgentMd('---\nname: ui-polisher\ntools: Read, Grep\ntool: codex\nmodel: sonnet\n---\nbody\n');
+  assert.equal(a.tool, 'codex');
+  assert.equal(a.tools, 'Read, Grep');
+});
+
+test('tool: never reaches any dialect copy', () => {
+  const a = parseAgentMd('---\nname: x\ndescription: d\ntool: codex\nmode: subagent\nmodel: sonnet\n---\nbody\n');
+  for (const platform of ['claude', 'opencode', 'gemini', 'kimi', 'codex']) {
+    const copy = renderCopy(platform, 'x', a);
+    assert.ok(!/^tool[:=]/m.test(copy), `${platform} copy leaked the tool key:\n${copy}`);
+  }
+});
+
+// ---- delivery state ---------------------------------------------------------
+// Four answers per agent × tool, none of them stored: copyTargets knows the
+// path, the marker at that path says the rest.
+
+test('deliveryState reports here / soon / theirs / none / via', () => {
+  const io = memIo({ [P('/proj/agents/release-scribe.md')]: MASTER_MD });
+  deliverAgents({ projectPath: PROJ, agentIds: ['claude'], io });
+  io.files[P('/home/cal/.gemini/agents/release-scribe.md')] = 'hand-made, same name\n';
+  const rows = deliveryState({
+    projectPath: PROJ, slug: 'release-scribe',
+    agentIds: ['claude', 'codex', 'antigravity', 'hermes', 'cursor'], io, homeDir: P('/home/cal'),
+  });
+  const by = Object.fromEntries(rows.map((r) => [r.agent, r]));
+  assert.equal(by.claude.state, 'here');
+  assert.equal(by.claude.file, P('/proj/.claude/agents/release-scribe.md'));
+  assert.equal(by.codex.state, 'soon');
+  assert.equal(by.codex.file, P('/proj/.codex/agents/release-scribe.toml'));
+  assert.equal(by.antigravity.state, 'theirs');
+  assert.equal(by.hermes.state, 'none');
+  assert.ok(by.hermes.reason);
+  assert.equal(by.cursor.state, 'via');
+  assert.equal(by.cursor.via, 'claude');
+});
+
+test('deliveryState never writes anything', () => {
+  const io = memIo({ [P('/proj/agents/release-scribe.md')]: MASTER_MD });
+  const before = Object.keys(io.files).length;
+  deliveryState({ projectPath: PROJ, slug: 'release-scribe', agentIds: ['claude', 'codex'], io });
+  assert.equal(Object.keys(io.files).length, before);
+});
+
+test('liftToMaster refuses a TOML agent rather than mangling it', () => {
+  const io = memIo({ [P('/proj/.codex/agents/tomlish.toml')]: 'name = "tomlish"\ndescription = "d"\n' });
+  const res = liftToMaster({ filePath: P('/proj/.codex/agents/tomlish.toml'), platform: 'codex', projectPath: PROJ, io });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /markdown/i);
+  assert.equal(io.files[P('/proj/.codex/agents/tomlish.toml')], 'name = "tomlish"\ndescription = "d"\n',
+    'the user’s own file is untouched');
+  assert.ok(!(P('/proj/agents/tomlish.md') in io.files), 'and no master was written');
+});
+
+// ---- importing an agent that lives elsewhere --------------------------------
+// The copy-over drawer: an agent in ~/.codex/agents or ~/.config/opencode/agent
+// becomes a master here. Unlike liftToMaster — which converts a file inside the
+// project and replaces it with a delivered copy — the source lives outside the
+// project and is the user's personal file. It is read, never written.
+
+test('importToMaster lifts a personal Codex TOML into agents/ and leaves the source alone', () => {
+  const src = P('/home/u/.codex/agents/legal-drafter.toml');
+  const toml = 'name = "legal-drafter"\ndescription = "Drafts the boring parts."\n'
+    + 'developer_instructions = """\nBe precise. Cite clauses.\n"""\n';
+  const io = memIo({ [src]: toml });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  const master = io.files[P('/proj/agents/legal-drafter.md')];
+  assert.match(master, /name: legal-drafter/);
+  assert.match(master, /description: Drafts the boring parts\./);
+  assert.match(master, /Be precise\. Cite clauses\./);
+  assert.equal(io.files[src], toml, 'the personal file is untouched');
+});
+
+test('importToMaster lifts a personal markdown agent the same way', () => {
+  const src = P('/home/u/.config/opencode/agent/sql-tuner.md');
+  const md = '---\ndescription: Makes queries fast.\nmode: subagent\n---\n\nTune them.\n';
+  const io = memIo({ [src]: md });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files[P('/proj/agents/sql-tuner.md')], /description: Makes queries fast\./);
+  assert.match(io.files[P('/proj/agents/sql-tuner.md')], /Tune them\./);
+  assert.equal(io.files[src], md, 'the personal file is untouched');
+});
+
+test('importToMaster refuses a name a master already owns', () => {
+  const io = memIo({
+    [P('/proj/agents/legal-drafter.md')]: MASTER_MD,
+    [P('/home/u/.codex/agents/legal-drafter.toml')]: 'name = "legal-drafter"\ndescription = "d"\n',
+  });
+  const res = importToMaster({ filePath: P('/home/u/.codex/agents/legal-drafter.toml'), projectPath: PROJ, io });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /already exists/);
+});
+
+test('a TOML whose prompt discusses TOML does not leak keys into the master', () => {
+  const src = P('/home/u/.codex/agents/meta.toml');
+  const io = memIo({ [src]:
+    'name = "meta"\ndescription = "Talks about config."\n'
+    + 'developer_instructions = """\nAgent files start with\nname = "not-me"\n"""\n' });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files[P('/proj/agents/meta.md')], /^name: meta$/m);
+  assert.match(io.files[P('/proj/agents/meta.md')], /not-me/, 'the prompt text itself survives into the body');
+});
+
+test('importToMaster reads the other TOML fence too', () => {
+  const src = P('/home/u/.codex/agents/quoter.toml');
+  const io = memIo({ [src]: "name = \"quoter\"\ndescription = \"d\"\ndeveloper_instructions = '''\nname = \"inside\"\nBody here.\n'''\n" });
+  const res = importToMaster({ filePath: src, projectPath: PROJ, io });
+  assert.equal(res.ok, true);
+  assert.match(io.files[P('/proj/agents/quoter.md')], /^name: quoter$/m, 'the fenced key stays in the body');
+  assert.match(io.files[P('/proj/agents/quoter.md')], /Body here\./);
+});
+
+test('importToMaster refuses a missing project rather than resolving paths against nothing', () => {
+  const res = importToMaster({ filePath: P('/home/u/.codex/agents/x.toml'), projectPath: '', io: memIo() });
+  assert.equal(res.ok, false);
+});
+
+// grok discovers .grok/agents/ (project) and ~/.grok/agents/ (user) as .md
+// with YAML frontmatter — the same dialect claude, gemini and kimi read, so
+// the existing markdown renderer covers it. Verified live: `grok inspect`
+// listed a master delivered there as "probe-tester  project".
+test('a master reaches grok as project markdown', () => {
+  const io = memIo({});
+  io.write(P('/p/agents/scribe.md'), '---\nname: scribe\ndescription: writes notes\n---\n\nBody.\n');
+  deliverAgents({ projectPath: '/p', agentIds: ['grok'], io });
+  const copy = io.read(P('/p/.grok/agents/scribe.md'));
+  assert.match(copy, /made by Nami from agents\/scribe\.md/);
+  assert.match(copy, /^---\n/);
+  assert.match(copy, /description: writes notes/);
+  assert.match(copy, /Body\./);
+});
+
+test('deleting a master sweeps its grok copy too', () => {
+  const io = memIo({});
+  io.write(P('/p/agents/scribe.md'), '---\nname: scribe\n---\n\nBody.\n');
+  deliverAgents({ projectPath: '/p', agentIds: ['grok'], io });
+  assert.ok(io.exists(P('/p/.grok/agents/scribe.md')));
+  const { removed } = sweepCopies({ projectPath: '/p', slug: 'scribe', io });
+  assert.ok(removed.includes(P('/p/.grok/agents/scribe.md')));
+});

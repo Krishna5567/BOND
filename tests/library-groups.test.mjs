@@ -1,0 +1,78 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { shelfOf, cliKey, isMacItem, serviceShelf, SHELF_GROUPS, shelfGroups, MAC_GROUP_KEYS, isPickerAgent, shouldLoadMac, macCountLabel } from '../src/renderer/library-groups.mjs';
+
+const item = (over) => ({ type: 'agent', platform: 'project', scope: 'project', slug: 'x', ...over });
+
+test('a master and an in-folder Claude agent sit on the project Agents shelf', () => {
+  assert.equal(shelfOf(item()), 'agents');
+  assert.equal(shelfOf(item({ platform: 'claude' })), 'agents');
+  assert.equal(isMacItem(item()), false);
+});
+
+test('user and plugin agents sit on Agents on this Mac', () => {
+  assert.equal(shelfOf(item({ scope: 'user', platform: 'claude' })), 'mac-agents');
+  assert.equal(shelfOf(item({ scope: 'plugin', platform: 'claude' })), 'mac-agents');
+  assert.equal(cliKey(item({ scope: 'plugin', platform: 'claude' })), 'claude');
+});
+
+test('project skills vs Mac skills', () => {
+  assert.equal(shelfOf(item({ type: 'skill', platform: 'project' })), 'skills');
+  assert.equal(shelfOf(item({ type: 'skill', platform: 'claude', scope: 'project' })), 'skills');
+  assert.equal(shelfOf(item({ type: 'skill', platform: 'codex', scope: 'user' })), 'mac-skills');
+  assert.equal(cliKey(item({ type: 'skill', platform: 'codex', scope: 'user' })), 'codex');
+});
+
+test('OpenCode commands are not Skills', () => {
+  assert.equal(shelfOf(item({ type: 'command', platform: 'opencode', scope: 'project' })), 'mac-commands');
+  assert.equal(shelfOf(item({ type: 'command', platform: 'opencode', scope: 'user' })), 'mac-commands');
+});
+
+test('gemini folder maps to antigravity; a master has no cli key', () => {
+  assert.equal(cliKey(item({ platform: 'gemini', scope: 'project' })), 'antigravity');
+  assert.equal(cliKey(item()), '');
+});
+
+test('a service with a project scope is the project MCP shelf', () => {
+  assert.equal(serviceShelf({ scopes: ['project'] }), 'services');
+  assert.equal(serviceShelf({ scopes: ['user'] }), 'mac-services');
+  assert.equal(serviceShelf({ scopes: ['project', 'user'] }), 'services');
+});
+
+test('Mac groups are named so the rail can collapse them by default', () => {
+  assert.ok(MAC_GROUP_KEYS.includes('mac-agents'));
+  assert.ok(SHELF_GROUPS.some((g) => g.key === 'agents' && !g.mac));
+});
+
+test('Mac scan waits until a Mac group opens, a search is typed, or it already ran', () => {
+  assert.equal(shouldLoadMac({ openGroups: [], query: '', macLoaded: false }), false);
+  assert.equal(shouldLoadMac({ openGroups: MAC_GROUP_KEYS, query: '', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: ['mac-agents'], query: '', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: [], query: 'researcher', macLoaded: false }), true);
+  assert.equal(shouldLoadMac({ openGroups: [], query: '  ', macLoaded: false }), false);
+  assert.equal(shouldLoadMac({ openGroups: ['mac-agents'], query: 'x', macLoaded: true }), false);
+});
+
+test('a Mac group that has not been scanned yet shows an ellipsis, not 0', () => {
+  assert.equal(macCountLabel({ loaded: false, n: 0 }), '…');
+  assert.equal(macCountLabel({ loaded: true, n: 0 }), '0');
+  assert.equal(macCountLabel({ loaded: true, n: 32 }), '32');
+});
+
+test('⌘K lists a master and an in-folder Claude agent, not a plugin or ~/.claude file', () => {
+  assert.equal(isPickerAgent(item()), true);
+  assert.equal(isPickerAgent(item({ platform: 'claude', scope: 'project' })), true);
+  assert.equal(isPickerAgent(item({ scope: 'plugin', platform: 'claude' })), false);
+  assert.equal(isPickerAgent(item({ scope: 'user', platform: 'claude' })), false);
+  assert.equal(isPickerAgent(item({ type: 'skill', scope: 'project' })), false);
+  assert.equal(isPickerAgent(item({ shadows: 'x' })), false);
+});
+
+test('the machine shelves are named for the machine: this Mac, or this PC', () => {
+  const labels = (platform) => shelfGroups(platform).filter((g) => g.mac).map((g) => g.label);
+  assert.deepEqual(labels('darwin'), ['Agents on this Mac', 'Skills on this Mac', 'MCP on this Mac', 'Commands on this Mac']);
+  assert.deepEqual(labels('win32'), ['Agents on this PC', 'Skills on this PC', 'MCP on this PC', 'Commands on this PC']);
+  // Keys are saved state (which shelves are open) and never follow the label.
+  assert.deepEqual(shelfGroups('win32').map((g) => g.key), shelfGroups('darwin').map((g) => g.key));
+  assert.deepEqual(SHELF_GROUPS, shelfGroups('darwin'), 'plain node reads the Mac column');
+});

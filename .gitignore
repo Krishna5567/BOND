@@ -1,0 +1,44 @@
+node_modules/
+dist/
+release/
+release-review/
+shots/
+# 42MB of Whisper weights, fetched by `npm run fetch-model` at package time
+build/models/
+# Microsoft's C++ runtime DLLs, copied off the build machine by
+# scripts/stage-vc-runtime.mjs. Theirs to publish, not ours to commit.
+build/vc-runtime/
+.DS_Store
+
+# Your desk. Anything personal, half-finished, or nobody-else's-business goes
+# here and never leaves this machine: scratch notes, screenshots, exports, keys
+# you are testing with. One rule, one folder — nothing to remember at commit time.
+_local/
+
+# Secrets, belt and braces. Nothing here should ever be in the repo — signing
+# material lives in ~/.appstoreconnect and in GitHub Secrets, never beside the
+# code. These lines exist for the day something lands here by accident, because
+# a key that reaches a commit has to be treated as burned even if the repo is
+# private: it is in the history, in every clone, and in every backup.
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+
+# Working notes and agent tooling: mine, not the product's. These are how Nami
+# gets built, not how it is used, and the specs in particular carry decisions
+# about shipping and audience that were written as private notes. They stay on
+# this machine. Everything a contributor needs is in README, CONTRIBUTING and
+# docs/design.md.
+.claude/
+.opencode/
+docs/superpowers/
+
+# Source art and old mockups. 11MB that nothing builds from: the mascot in the
+# app is inline SVG, and the icon the installer uses is build/icon.png. Every
+# clone was paying for them. The design they document is now the app itself,
+# and docs/media holds the live screenshots.
+assets/
+docs/reference/
+acp-tools/

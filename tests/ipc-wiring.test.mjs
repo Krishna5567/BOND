@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Take three's drawer button called library:importAgent — a handler a patch
+// script claimed to register and silently had not. The button rejected with
+// "No handler registered" and 805 tests stayed green. This test is the
+// mechanical version of clicking every button: any library:* channel the
+// preload exposes must have a matching ipcMain.handle in main.js.
+
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const mainSrc = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+const preloadSrc = fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8');
+
+test('every library channel the preload invokes has a registered handler', () => {
+  const invoked = [...preloadSrc.matchAll(/ipcRenderer\.invoke\('(library:[^']+)'/g)].map((m) => m[1]);
+  assert.ok(invoked.length > 0, 'preload should expose library channels');
+  for (const ch of invoked) {
+    assert.ok(
+      mainSrc.includes(`ipcMain.handle('${ch}'`),
+      `${ch} is invoked by the preload but never registered in main.js`,
+    );
+  }
+});
+
+test('the local browser-file action is paired across preload and main', () => {
+  assert.match(preloadSrc, /openFileInBrowser:\s*\(file\)\s*=>\s*ipcRenderer\.invoke\('file:openBrowser', file\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('file:openBrowser'/);
+});
+
+test('the plain folder chooser is paired across preload and main', () => {
+  assert.match(preloadSrc, /chooseFolder:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('folder:choose'\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('folder:choose'/);
+});
+
+test('term session-id discovery is paired across preload and main', () => {
+  // main discovers a terminal agent tile's conversation id and pushes it; the
+  // preload must listen on the same channel or the id is never saved.
+  assert.match(preloadSrc, /onTermSessionId:.*ipcRenderer\.on\('term:session-id'/);
+  assert.match(mainSrc, /'term:session-id'/);
+});
+
+// A chat card asks main to watch its session's store for a name. The same
+// button-click check as the library channels: exposed in the preload, handled
+// in main, and the card actually calls it once it has a session id.
+test('session:watch-title is exposed, handled, and called by the chat pane', () => {
+  assert.match(preloadSrc, /sessionWatchTitle:\s*\(args\)\s*=>\s*ipcRenderer\.invoke\('session:watch-title', args\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('session:watch-title'/);
+  const pane = fs.readFileSync(path.join(root, 'src/renderer/acp-pane.mjs'), 'utf8');
+  assert.match(pane, /api\.sessionWatchTitle\(\{ id: p\.id, agent: p\.agentId \|\| 'claude', cwd: p\.cwd, sid: p\.acpSid \}\)/);
+  assert.equal((pane.match(/watchTitle\(\);/g) || []).length, 2, 'after connect and after picking up a past session');
+});
+
+test('view:set is exposed, handled, and the boot payload carries the saved view', () => {
+  assert.match(preloadSrc, /viewSet:\s*\(view\)\s*=>\s*ipcRenderer\.invoke\('view:set', view\)/);
+  assert.match(mainSrc, /ipcMain\.handle\('view:set'/);
+  assert.match(mainSrc, /view: settingsStore\.normalizeView\(readSettings\(\)\.view\)/);
+});

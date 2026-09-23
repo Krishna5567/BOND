@@ -1,0 +1,214 @@
+# Tag a version, get an installer — for the Mac and for Windows. Nothing else
+# publishes.
+#
+# This is the wall between working and shipping: master moves as freely as you
+# like and nobody downloads it. Only a `v*` tag becomes something a user can
+# install, and it is built from a clean checkout by a machine that has never
+# seen your desk — so what ships is exactly what is committed, never what
+# happened to be lying around locally.
+#
+#   npm version patch && git push --follow-tags
+#
+# Secrets this needs:
+#   CSC_LINK            base64 of the Developer ID .p12  ) omit both and the
+#   CSC_KEY_PASSWORD    its export password               ) build is unsigned
+#   APPLE_API_KEY_P8    base64 of the App Store Connect .p8  ) omit these and
+#   APPLE_API_KEY_ID    the key's ID                         ) it is signed
+#   APPLE_API_ISSUER    the issuer UUID                      ) but not notarized
+#
+#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+#   AZURE_ENDPOINT, AZURE_CODE_SIGNING_NAME, AZURE_CERT_PROFILE_NAME
+#                       what signs the Windows installers. A release without
+#                       them stops; see windows.yml.
+#
+# Note the name: electron-builder's APPLE_API_KEY is a PATH to the .p8, not its
+# contents, so the secret holds the bytes under a different name and the step
+# below writes them to a file and points APPLE_API_KEY at it.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: macos-14   # pinned: a runner bump changes the SDK the app links against
+    # The release lands on this same repo, so the built-in token can create it —
+    # no hand-made PAT to rotate. It only needs to be told it may write.
+    permissions:
+      contents: write
+    timeout-minutes: 60
+    steps:
+      # Stop in the first seconds rather than after half an hour of building and
+      # notarizing something that cannot then be uploaded.
+      - name: Check we can publish before doing any work
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=
+          [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
+          [ -z "$APPLE_API_KEY_P8" ]  && missing="$missing APPLE_API_KEY_P8"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing — a release must be signed, notarized and publishable, so stopping now rather than after 45 minutes of building."
+            exit 1
+          fi
+          echo "all release credentials present"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 44 MB of Whisper weights, gitignored and fetched at pack time. Keyed on
+      # the fetch script so a model change busts the cache and nothing else does.
+      - name: Cache Whisper weights
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/fetch-model.mjs', 'src/main/stt-model.js') }}
+
+      - run: npm ci
+
+      # The gate. A red test never becomes a download.
+      - run: npm test
+
+      - name: Reject known dependency vulnerabilities
+        run: npm run check:security
+
+      # The key has to exist as a file on disk — see the note at the top. Runner
+      # disks are destroyed with the job, so this never outlives the build.
+      - name: Stage the notarization key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/nami-signing"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/nami-signing/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/nami-signing/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # Build only — publishing is a separate step below, deliberately.
+      #
+      # `--publish always` would upload latest-mac.yml as electron-builder wrote
+      # it, which is before the notarization staple changes the dmg and before
+      # fix-update-metadata corrects the recorded hash. The release would install
+      # fine and every later auto-update would fail its checksum. Uploading after
+      # the build has fully finished is the only way that file can be true.
+      #
+      # `predist` pulls the weights; the cache above usually makes it a no-op.
+      - name: Build, sign and notarize
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run dist
+
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/nami-signing"
+
+      # Refuse to publish something Gatekeeper would reject. This is the check a
+      # user performs by double-clicking, and it is silent at build time.
+      - name: Check what Gatekeeper makes of it
+        run: |
+          set -e
+          for dmg in release/*.dmg; do
+            echo "== $dmg"
+            spctl -a -vvv -t open --context context:primary-signature "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+
+      # The zip is what an update installs, and it is built from the .app rather
+      # than from the dmg — so it is stapled only if the staple reached the .app
+      # before the zip was written. That ordering is electron-builder's, not
+      # ours, and it is invisible: an unstapled app installs perfectly on the
+      # machine that downloaded it and then fails Gatekeeper on the first launch
+      # that happens offline. Unpack what was actually built and look.
+      - name: Check the zip an update would install
+        run: |
+          set -e
+          for zip in release/*.zip; do
+            echo "== $zip"
+            work="$(mktemp -d)"
+            ditto -x -k "$zip" "$work"
+            app="$work/Nami.app"
+            [ -d "$app" ] || { echo "no Nami.app inside $zip"; exit 1; }
+            codesign --verify --deep --strict "$app"
+            spctl -a -vvv -t exec "$app"
+            xcrun stapler validate "$app"
+            rm -rf "$work"
+          done
+
+      # Prove the update metadata describes the bytes being uploaded, not the
+      # bytes that existed before stapling.
+      - name: Check the update metadata
+        run: node scripts/check-update-metadata.mjs
+
+      # And prove the app itself carries only what it needs to run. npm test
+      # already checked that electron-builder.yml still says so; this opens the
+      # bundle that was actually produced and looks.
+      - name: Check what is inside the app
+        run: node scripts/check-bundle.mjs
+
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo mrdainami/nami \
+            --draft \
+            --title "Nami ${GITHUB_REF_NAME#v}" \
+            --notes "Signed and notarized for macOS. Apple Silicon and Intel builds attached." \
+            release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
+
+      - name: Report what shipped
+        if: always()
+        run: |
+          for app in release/mac*/Nami.app; do
+            [ -d "$app" ] || continue
+            echo "== $app"
+            codesign -dv "$app" 2>&1 | grep -E 'Identifier|TeamIdentifier' || echo "  unsigned"
+            spctl -a -vvv -t install "$app" 2>&1 | tail -2 || true
+          done
+
+  # The Windows half, side by side with the Mac one. It is windows.yml, the same
+  # steps every push already runs, told this once that unsigned is not good enough.
+  windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      require_signing: true
+    secrets: inherit
+    permissions:
+      contents: read
+
+  # Both halves have to finish before Windows is added to the draft. A Mac build
+  # that failed leaves no draft to add to, and a Windows build that failed leaves
+  # a draft with no Windows in it and a red run — which is what stops it from
+  # being published.
+  attach-windows:
+    needs: [build, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Nami-windows-release
+          path: win
+
+      - name: Add the Windows installers to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ls -l win
+          gh release upload "${GITHUB_REF_NAME}" --repo mrdainami/nami \
+            win/latest.yml win/*.exe win/*.blockmap
+          gh release edit "${GITHUB_REF_NAME}" --repo mrdainami/nami \
+            --notes "Signed and notarized for macOS: Apple Silicon and Intel. Signed for Windows 10 and 11: x64 and ARM64, as an installer or a portable app."

@@ -1,0 +1,770 @@
+/* Nami — the liquid-glass system: "glass" (light) + shared structure.
+   Approved mockup: docs/reference/glass-graphite-mockup.html
+
+   Layout of the system, mirroring the paper/operator pattern:
+   - body[data-theme="glass"]     → light token remap (this file)
+   - body[data-theme="graphite"]  → dark token remap (theme-graphite.css)
+   - body[data-glass]             → every structural rule, written ONCE for both
+     (setTheme() sets data-glass for either glass-family theme).
+   paper.css stays byte-identical; operator is untouched. */
+
+/* Doto — the dot-matrix identity face (vendored; no network) */
+@font-face {
+  font-family: 'Doto';
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+  src: url(./vendor/doto/doto-latin.woff2) format('woff2');
+}
+
+/* ---- glass (light) token remap ------------------------------------------- */
+body[data-theme="glass"] {
+  --desk: #e8e9ee;
+  --sheet-hi: rgba(255, 255, 255, 0.22);
+  --sheet-lo: rgba(255, 255, 255, 0.22);
+  --paper: rgba(255, 255, 255, 0.48);
+  --paper-2: rgba(255, 255, 255, 0.38);
+  --paper-3: rgba(255, 255, 255, 0.3);
+  --ink: #1d1d22;
+  --muted: #6f7079;
+  --muted-2: #7d7e88;
+  --muted-3: #8a8b94;
+  --faint: #b4b5be;
+  --line: rgba(29, 29, 34, 0.16);
+  --dash: rgba(29, 29, 34, 0.1);
+  --dash-dark: rgba(29, 29, 34, 0.2);
+  --field: #edeff4;                       /* a grey step the frosted sheet can't wash out */
+  --field-line: rgba(29, 29, 34, 0.34);
+  --rail: rgba(255, 255, 255, 0.18);
+  --hover: rgba(255, 255, 255, 0.55);
+  /* menus float over live card text: near-opaque, or the rows ghost through */
+  --menu-sheet: rgba(255, 255, 255, 0.96);
+  --green: #00A86B;            /* primary action → Bond emerald */
+  --green-dark: #00875a;
+  --green-ok: #2e7d4f;
+  --mode-plan: #3d6bb3;
+  --u-bg: rgba(0, 168, 107, 0.10);
+  --diff-add-bg: rgba(46, 125, 79, 0.14);
+  --diff-add-ink: #226940;
+  --diff-del-bg: rgba(239, 68, 68, 0.12);
+  --diff-del-ink: #b2322f;
+  --amber-bg: rgba(238, 190, 80, 0.2);
+  --amber-line: rgba(201, 152, 44, 0.55);
+  --amber-ink: #9a6c14;
+  --amber-body: #8a6520;
+  --amber-btn: #c98d1a;
+  --amber-btn-line: #a87613;
+  --red-bg: rgba(239, 68, 68, 0.14);
+  --red-line: #ef4444;
+  --red-ink: #b2322f;
+  --tok-kw: #3d6bb3;
+  --tok-str: #4a7a4a;
+  --tok-num: #9a6c14;
+  --tok-com: #6f7079;
+  --tok-key: #7a4a8a;
+  --tok-add-ink: #33503b;  --tok-add-bg: rgba(74, 122, 74, 0.14);
+  --tok-del-ink: #b2322f;  --tok-del-bg: rgba(178, 50, 47, 0.12);
+  --sweep: rgba(60, 60, 70, 0.06);
+  --shimmer-hi: #26272c;
+  --red-body: #fca5a5;
+  --red-btn: #dc2626;
+  --red-btn-line: #ef4444;
+  --shadow-soft: rgba(45, 52, 90, 0.12);
+  --shadow-mid: rgba(45, 52, 90, 0.16);
+  --shadow-hard: rgba(45, 52, 90, 0.22);
+  --tree-ink: rgba(60, 60, 72, 0.72);
+  --tree-fill: rgba(255, 255, 255, 0.65);
+  --tree-fill-open: rgba(255, 255, 255, 0.85);
+  --tree-fill-file: rgba(255, 255, 255, 0.55);
+  /* glass helpers — shared names, per-theme values */
+  --gl-accent: #00A86B;
+  --gl-accent-hi: #10B981;
+  --gl-accent-deep: #00875a;
+  --gl-accent-dim: rgba(0, 168, 107, 0.14);
+  --gl-pane: rgba(255, 255, 255, 0.48);
+  --gl-pane-strong: rgba(255, 255, 255, 0.62);
+  --gl-pane-dim: rgba(255, 255, 255, 0.24);
+  /* modals sit over live terminal text — a pane-strong fill lets it read through */
+  --gl-pane-modal: rgba(255, 255, 255, 0.86);
+  --gl-rim: rgba(255, 255, 255, 0.75);
+  --gl-rim-hi: rgba(255, 255, 255, 0.95);
+  --gl-rim-dim: rgba(255, 255, 255, 0.45);
+  --gl-sh: 45 52 90;
+  --gl-lip: rgba(255, 255, 255, 0.8);
+  --gl-seg-track: rgba(120, 120, 138, 0.14);
+  --gl-seg-active: rgba(255, 255, 255, 0.82);
+  --gl-bar-track: rgba(120, 120, 138, 0.22);
+  --gl-well: rgba(226, 228, 237, 0.6);
+  --gl-well-line: rgba(255, 255, 255, 0.8);
+  --gl-well-lip: rgba(255, 255, 255, 0.75);
+  --gl-slab:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+    inset 0 14px 30px rgba(255, 255, 255, 0.3),
+    inset 0 -14px 30px rgba(96, 108, 148, 0.12),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  /* the theme's link colour, named so the shared body[data-glass] rules can
+     reach it — graphite answers with its own */
+  --gl-link: #3763c9;
+  --nami-fill: #00A86B;
+  --nami-foam: #ffffff;
+  --nami-eye: #1d1d22;
+}
+/* the aurora desk — glass is only alive with light behind it */
+body[data-theme="glass"] {
+  background: #e8e9ee;
+  background-image:
+    radial-gradient(52% 44% at 12% 6%,  rgba(255, 158, 140, 0.55) 0%, transparent 62%),
+    radial-gradient(46% 40% at 92% 12%, rgba(140, 205, 220, 0.5)  0%, transparent 60%),
+    radial-gradient(60% 52% at 78% 88%, rgba(255, 190, 170, 0.42) 0%, transparent 64%),
+    radial-gradient(44% 40% at 8% 92%,  rgba(168, 190, 235, 0.4)  0%, transparent 60%),
+    linear-gradient(165deg, #f6f4f2 0%, #e9e8ee 55%, #eceef0 100%);
+}
+body[data-theme="glass"] a { color: #3763c9; }
+
+/* =========================================================================
+   The glass system — every rule below serves BOTH glass-family themes.
+   ========================================================================= */
+
+body[data-glass] {
+  --gl-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  --gl-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  --gl-dot: 'Doto', 'SF Mono', ui-monospace, monospace;
+  --gl-pop: cubic-bezier(0.22, 1.28, 0.36, 1);
+  /* the sheet's corner, named once: the overlay scrim has to trace the same
+     curve or it reads as a square dropped on a rounded workbench. 0 since the
+     sheet went edge-to-edge — the scrim's calc(0 - 1px) clamps back to 0. */
+  --gl-sheet-r: 0px;
+  font-family: var(--gl-sans);
+  letter-spacing: -0.01em;
+  /* pixel cursor — ink arrow at rest */
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%231d1d22' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, default;
+}
+body[data-glass] button, body[data-glass] a,
+body[data-glass] .nav-card, body[data-glass] .agent-row, body[data-glass] .tree-row,
+body[data-glass] .project-chip, body[data-glass] .picker-row, body[data-glass] .artifact,
+body[data-glass] .svc-card, body[data-glass] .svc-custom, body[data-glass] .ctx-item {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 8 12'><path fill='%2300A86B' shape-rendering='crispEdges' d='M0 0h1v1H0z M0 1h2v1H0z M0 2h3v1H0z M0 3h4v1H0z M0 4h5v1H0z M0 5h6v1H0z M0 6h7v1H0z M0 7h8v1H0z M0 8h5v1H0z M0 9h2v1H0z M3 9h2v1H3z M0 10h1v1H0z M4 10h2v1H4z M4 11h2v1H4z' style='filter: drop-shadow(0.4px 0 0 white) drop-shadow(-0.4px 0 0 white) drop-shadow(0 0.4px 0 white) drop-shadow(0 -0.4px 0 white)'/></svg>") 1 1, pointer;
+}
+
+/* pixel-glyph twins: unicode hides, dots show */
+.pix-i { display: none; }
+body[data-glass] .pix-i { display: inline-flex; align-items: center; }
+body[data-glass] .uni-i { display: none; }
+body[data-glass] .btn .pix-i { margin-right: 5px; }
+.pix-glyph { width: 11px; height: 11px; }
+.pix-glyph path { fill: currentColor; shape-rendering: crispEdges; }
+
+/* scrollbars */
+body[data-glass] ::-webkit-scrollbar-thumb { background: rgb(var(--gl-sh) / 0.28); border: 3px solid transparent; background-clip: content-box; border-radius: 10px; }
+body[data-glass] ::-webkit-scrollbar-thumb:hover { background: rgb(var(--gl-sh) / 0.45); background-clip: content-box; }
+
+/* ---- the sheet: a glass frame floating on the aurora ---------------------- */
+body[data-glass] .sheet {
+  background: var(--sheet-hi);
+  -webkit-backdrop-filter: blur(8px) saturate(1.25);
+  backdrop-filter: blur(8px) saturate(1.25);
+  border-radius: var(--gl-sheet-r);
+  /* edge-to-edge: no rim, no outer throw — only the inner lip survives */
+  box-shadow: inset 0 1.5px 0 var(--gl-lip), inset 0 -18px 44px rgb(var(--gl-sh) / 0.08);
+}
+
+/* ---- type: identity in dots, reading in SF Pro ----------------------------- */
+body[data-glass] .caveat,
+body[data-glass] .brand-name,
+body[data-glass] .rail-head .title,
+body[data-glass] .lane-empty .polaroid,
+body[data-glass] .lane-empty .big,
+body[data-glass] .card-head .goal,
+body[data-glass] .approval .title,
+body[data-glass] .stopped .title,
+body[data-glass] .artifacts .title,
+body[data-glass] .modal-head .title,
+body[data-glass] .qs-head .title,
+body[data-glass] .card-lbl,
+body[data-glass] .ab-name,
+body[data-glass] .board-title,
+body[data-glass] .sv-bigok-t { font-family: var(--gl-dot); font-weight: 800; }
+body[data-glass] .say--user { font-family: var(--gl-sans); font-size: 13px; line-height: 1.6; border-left-color: var(--gl-accent); }
+
+body[data-glass] .brand-name { font-size: 19px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
+body[data-glass] .brand-sub { font-family: var(--gl-dot); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; align-self: flex-end; padding-bottom: 4px; }
+/* the version caption speaks the same dot type as the tagline it ranks with.
+   Doto is a lattice of round dots, so it needs the extra tracking to stay
+   readable at 9px — the letters run together without it. The 2px nudge paper
+   uses to clear Caveat's left side bearing comes back off: Doto's grid starts
+   at the box edge, so 2px would sit the caption right of the N above it.
+
+   It also hangs 2px lower than paper's. The measured gap is already the larger
+   of the two (2.9px against paper's 2.5px), but Caveat ends in a swash and Doto
+   ends in a flat row of dots, so the caption's own dots read as one more row of
+   the wordmark's grid. The number that matters is the one your eye reports. */
+body[data-glass] .brand-ver {
+  font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.18em;
+  left: 0; top: calc(100% - 1px);
+}
+/* Glass is the one theme where --faint fails: #b4b5be on its pale aurora is
+   1.5:1, which is not quiet, it is absent. One rung up puts it at 2.5:1 —
+   still clearly below the tagline's 3.7:1, which is the rank we want.
+   Graphite keeps --faint precisely because it is the dark twin: the same token
+   reads 3.2:1 there, better than --muted-3 would. */
+body[data-theme="glass"] .brand-ver { color: var(--muted-3); }
+body[data-glass] .nami-mascot, body[data-glass] .bond-mascot {
+  height: 28px; width: 28px;
+  background: #ffffff;
+  border-radius: 7px;
+  padding: 2px;
+  box-shadow: 0 2px 4px rgba(0, 168, 107, 0.35);
+  transform: translateY(-1px);
+  transition: transform 0.45s var(--gl-pop);
+}
+/* the dot-lattice body — same silhouette, built from dots like the type */
+body[data-glass] .nami-mascot .nami-body { fill: url(#nami-dot-lattice); }
+body[data-glass] .brand:hover .nami-mascot, body[data-glass] .brand:hover .bond-mascot { transform: translateY(-3px) rotate(-4deg); }
+body[data-glass] .rail-head .title { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+body[data-glass] .lane-empty .big { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .lane-empty .polaroid {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; transform: none;
+  border-radius: 14px; box-shadow: var(--gl-slab), 0 18px 44px rgb(var(--gl-sh) / 0.16);
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+}
+body[data-glass] .card-head .goal { font-size: 13px; letter-spacing: 0.03em; }
+body[data-glass] .approval .title, body[data-glass] .stopped .title,
+body[data-glass] .artifacts .title, body[data-glass] .modal-head .title,
+body[data-glass] .qs-head .title { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.3; }
+body[data-glass] .card-lbl { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
+body[data-glass] .ab-name { font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+body[data-glass] .ab-link { color: var(--gl-accent, #2e7d4f); }
+body[data-glass] .board-title { font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; }
+body[data-glass] .sv-bigok-t { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* ---- the slab + physics ---------------------------------------------------- */
+/* Panes brighten on hover and compress on press. The slab's light bands are real
+   shadows, so depth comes from light rather than from moving the pane. */
+body[data-glass] .tile,
+body[data-glass] .nav-card {
+  background: var(--gl-pane);
+  /* blur is the perf budget: panes only, kept moderate — buttons/chips are
+     translucent without live blur so moving glass stays cheap */
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--gl-rim);
+  border-radius: 22px;
+  box-shadow: var(--gl-slab), 0 24px 55px rgb(var(--gl-sh) / 0.16), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+  transition: box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+/* Only the rail's session cards tilt toward the cursor (app.js feeds --rx/--ry).
+   Desk tiles stay put: a document that slides while you read it is the opposite
+   of a work surface, and a terminal could never tilt at all — a 3D transform
+   makes Chromium rasterize its text to a texture and the lift then stretches it.
+   A card this size carries the movement; a tile cannot. */
+body[data-glass] .nav-card {
+  border-radius: 17px;
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
+  /* 90ms: the tilt tracks the hand instead of dragging behind it */
+  transition: transform 0.09s ease-out, box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+body[data-glass] .tile:hover {
+  background: var(--gl-pane-strong);
+  border-color: var(--gl-rim-hi);
+  box-shadow: var(--gl-slab), 0 42px 90px rgb(var(--gl-sh) / 0.22), 0 4px 14px rgb(var(--gl-sh) / 0.08);
+}
+body[data-glass] .nav-card:hover {
+  transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px) translateZ(8px);
+  background: var(--gl-pane-strong);
+  border-color: var(--gl-rim-hi);
+  box-shadow: var(--gl-slab), 0 22px 48px rgb(var(--gl-sh) / 0.2);
+}
+body[data-glass] .tile.active {
+  border-color: rgba(110, 231, 183, 0.85);
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(0, 168, 107, 0.55), 0 20px 40px rgba(0, 168, 107, 0.14), 0 2px 8px rgb(var(--gl-sh) / 0.06);
+}
+body[data-glass] .tile.active:hover {
+  box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(0, 168, 107, 0.6), 0 32px 70px rgba(0, 168, 107, 0.2), 0 4px 14px rgb(var(--gl-sh) / 0.08);
+}
+body[data-glass] .tile.attention { border-color: var(--gl-accent); animation: gl-breathe 1.8s ease-in-out infinite; }
+@keyframes gl-breathe {
+  0%, 100% { box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(0, 168, 107, 0.5), 0 0 24px rgba(0, 168, 107, 0.2); }
+  50% { box-shadow: var(--gl-slab), 0 0 0 2px rgba(0, 168, 107, 0.85), 0 0 40px rgba(0, 168, 107, 0.38); }
+}
+body[data-glass] .nav-card.active { border-color: rgba(110, 231, 183, 0.85); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(0, 168, 107, 0.5), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
+body[data-glass] .nav-card.attn { border-color: var(--amber-line); box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(238, 190, 80, 0.6); }
+body[data-glass] .tile.drop-hint, body[data-glass] .tile.file-hint { outline-color: var(--gl-accent); }
+/* glass rounds its tiles 22px, so the corner mark tucks inside the curve — the
+   hit area is unchanged, still straddling the true corner */
+body[data-glass] .tile-grip::before { right: 17px; bottom: 17px; }
+/* the resize slot speaks the same accent as every other drop target on glass */
+body[data-glass] .desk-slot { border-color: var(--gl-accent); background: rgba(0, 168, 107, 0.06); }
+body[data-glass] .desk-slot .ds-size { background: var(--gl-pane); border-color: var(--gl-rim); border-radius: 7px; }
+body[data-glass] .tile.file-hint { box-shadow: var(--gl-slab), 0 0 0 3px rgba(0, 168, 107, 0.25); }
+@media (prefers-reduced-motion: reduce) {
+  body[data-glass] .tile, body[data-glass] .nav-card { transition: none; transform: none !important; }
+}
+
+/* dot-matrix titles on tiles + rail cards */
+body[data-glass] .tile-head { border-bottom: none; background: none; padding-top: 11px; }
+body[data-glass] .tile-head .t-title, body[data-glass] .peek-head .pk-title { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
+body[data-glass] .nav-card .goal { font-family: var(--gl-dot); font-weight: 800; letter-spacing: 0.03em; }
+body[data-glass] .nav-card .sid { font-family: var(--gl-mono); }
+body[data-glass] .nav-card .status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: color-mix(in srgb, currentColor 13%, transparent);
+}
+body[data-glass] .t-status {
+  font-family: var(--gl-dot); font-weight: 900; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3.5px 9px; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  background: var(--gl-pane-dim);
+}
+body[data-glass] .t-btn { border-radius: 999px; }
+body[data-glass] .t-btn:hover { background: var(--gl-pane-strong); }
+body[data-glass] .status-chip {
+  transform: none; border-radius: 999px; border: 1px solid var(--gl-rim-dim);
+  font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.1em;
+}
+
+/* ---- topbar ----------------------------------------------------------------- */
+body[data-glass] .topbar { border-bottom: none; }
+body[data-glass] .project-chip {
+  transform: none; border-radius: 999px;
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.08);
+  transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease;
+}
+body[data-glass] .project-chip:hover { transform: translateY(-2px); background: var(--gl-pane-strong); box-shadow: var(--gl-slab), 0 12px 30px rgb(var(--gl-sh) / 0.14); }
+body[data-glass] .projects-pop {
+  --rest: translateX(-50%); transform: var(--rest); border-radius: 18px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7); backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 30px 80px rgb(var(--gl-sh) / 0.28);
+}
+body[data-glass] .projects-pop { padding: 10px; }
+body[data-glass] .pop-label { font-family: var(--gl-dot); font-weight: 900; letter-spacing: 0.2em; color: var(--muted); }
+body[data-glass] .project-row { border: none; border-radius: 12px; margin: 1px 0; }
+body[data-glass] .project-row:hover { background: var(--hover); }
+body[data-glass] .project-row .row-newwin { border-radius: 8px; }
+body[data-glass] .project-row .row-newwin:hover { border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .project-open-other {
+  border: 1px solid var(--gl-rim-dim); border-radius: 12px; background: var(--gl-pane-dim); margin-top: 6px;
+}
+body[data-glass] .project-open-other:hover { background: var(--gl-pane); border-color: var(--gl-rim); }
+body[data-glass] .live-badge {
+  transform: none; border-radius: 999px; color: var(--muted);
+  border: 1px solid var(--gl-rim); background: var(--gl-pane);
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+body[data-glass] .live-badge .dot { background: var(--gl-accent); box-shadow: 0 0 0 3px var(--gl-accent-dim), 0 0 10px rgba(0, 168, 107, 0.6); }
+body[data-glass] .live-badge.attn { border-color: var(--gl-accent); background: var(--gl-accent-dim); color: var(--gl-accent-deep); }
+body[data-glass] .live-badge.attn .dot { background: var(--gl-accent); }
+
+body[data-glass] .btn {
+  font-family: var(--gl-dot); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 4px 14px rgb(var(--gl-sh) / 0.07);
+  transition: transform 0.35s var(--gl-pop), box-shadow 0.35s var(--gl-pop), background 0.3s ease, border-color 0.3s ease;
+}
+body[data-glass] .btn:hover { transform: translateY(-2.5px); background: var(--gl-pane-strong); border-color: var(--gl-rim-hi); box-shadow: var(--gl-slab), 0 12px 28px rgb(var(--gl-sh) / 0.15); }
+body[data-glass] .btn:active { transform: translateY(0) scale(0.96); transition-duration: 0.12s; }
+body[data-glass] #btn-theme, body[data-glass] #btn-settings, body[data-glass] #btn-help {
+  width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+}
+body[data-glass] #btn-theme .uni-i, body[data-glass] #btn-settings .uni-i,
+body[data-glass] #btn-help .uni-i { display: none; }
+body[data-glass] #btn-theme .pix-i, body[data-glass] #btn-settings .pix-i,
+body[data-glass] #btn-help .pix-i { margin: 0; }
+/* 16, not 14: the cog and the ? are cut on a 16 grid, so a 16px box is one
+   cell per CSS pixel and the teeth stay square. */
+body[data-glass] #btn-theme .pix-glyph, body[data-glass] #btn-settings .pix-glyph,
+body[data-glass] #btn-help .pix-glyph { width: 16px; height: 16px; }
+/* tile buttons: capsule glass, mic in ink, zoom pair reads as one control */
+body[data-glass] .t-btn { border-radius: 999px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .t-btn .pix-glyph { width: 12px; height: 12px; }
+body[data-glass] .t-mic { color: var(--ink); }
+body[data-glass] .t-mic:hover { color: var(--gl-accent-deep); }
+/* The primary action glows, it doesn't cast. A single offset drop shadow
+   (0 8px 24px) pooled below the pill and hit .topbar's overflow clip, so it
+   read as a rectangle with a straight edge cut under the button. Every outer
+   layer here is zero-offset, so the halo follows the 999px radius all the way
+   round, and the widest stays under the ~12px of headroom the 58px bar leaves
+   around a 34px pill. */
+body[data-glass] .btn--go {
+  color: #fff;
+  background: linear-gradient(150deg, rgba(16, 185, 129, 0.95) 0%, rgba(0, 168, 107, 0.95) 100%);
+  border-color: rgba(110, 231, 183, 0.9);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(0, 99, 65, 0.25),
+    0 0 0 1px rgba(0, 168, 107, 0.3),
+    0 0 8px rgba(0, 168, 107, 0.45),
+    0 0 12px rgba(0, 168, 107, 0.3);
+}
+body[data-glass] .btn--go:hover {
+  background: linear-gradient(150deg, rgba(52, 211, 153, 0.98) 0%, rgba(5, 150, 105, 0.95) 100%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(0, 99, 65, 0.25),
+    0 0 0 1px rgba(0, 168, 107, 0.45),
+    0 0 9px rgba(0, 168, 107, 0.55),
+    0 0 12px rgba(0, 168, 107, 0.4);
+}
+body[data-glass] .btn--amber, body[data-glass] .btn--red { box-shadow: var(--gl-slab), 0 6px 18px rgb(var(--gl-sh) / 0.1); border-radius: 999px; }
+
+/* ---- rail --------------------------------------------------------------------- */
+body[data-glass] .rail { border-right: none; background: none; }
+/* the segmented pill needs outer margins (paper spaced with padding we replaced),
+   and the scroller needs headroom so a lifted card never clips under the header */
+body[data-glass] .rail-tabs { margin: 6px 16px 8px; }
+body[data-glass] .rail-head { padding: 4px 20px 6px; }
+body[data-glass] .rail-list {
+  padding: 10px 16px 18px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+body[data-glass] .nav-card:hover { z-index: 3; }
+body[data-glass] .rail-tabs, body[data-glass] .card-tabs {
+  border-radius: 999px; padding: 3px; gap: 2px;
+  background: var(--gl-seg-track);
+  border: 1px solid var(--gl-rim-dim);
+  box-shadow: inset 0 1px 2px rgb(var(--gl-sh) / 0.06);
+}
+body[data-glass] .rail-tab, body[data-glass] .card-tab {
+  border: none; border-radius: 999px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+body[data-glass] .rail-tab.active, body[data-glass] .card-tab.active {
+  background: var(--gl-seg-active); color: var(--ink); font-weight: 900;
+  box-shadow: inset 0 1px 0 var(--gl-lip), 0 2px 7px rgb(var(--gl-sh) / 0.12);
+  border: none;
+}
+body[data-glass] .rail-collapse, body[data-glass] .rail-strip { border-radius: 999px; box-shadow: none; background: var(--gl-pane); border: 1px solid var(--gl-rim); }
+body[data-glass] .tree-row { border-bottom-color: rgb(var(--gl-sh) / 0.08); border-radius: 8px; }
+body[data-glass] .tree-row:hover { background: var(--hover); }
+body[data-glass] .agent-row { border-color: var(--gl-rim-dim); border-radius: 14px; background: var(--gl-pane-dim); }
+body[data-glass] .agent-row:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+/* A pinned group label sits over live rows, and --rail is see-through here, so
+   it has to carry its own glass: blur what passes under it, or the rows read
+   straight through the words. The bleed hides the row corners either side. */
+body[data-glass] .lib-group {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  padding-left: 14px; padding-right: 14px; margin-left: -14px; margin-right: -14px;
+}
+
+/* segmented progress ticks (paper's solid bars go dotted, Nothing-style) */
+body[data-glass] .bar, body[data-glass] .progress {
+  background: repeating-linear-gradient(90deg, var(--gl-bar-track) 0 6px, transparent 6px 9px);
+  border-radius: 3px;
+}
+body[data-glass] .bar > i, body[data-glass] .progress > i {
+  background: repeating-linear-gradient(90deg, var(--gl-accent) 0 6px, transparent 6px 9px);
+  filter: drop-shadow(0 0 5px rgba(0, 168, 107, 0.55));
+}
+
+/* chips: frosted capsules; kind still answers "what kind of thing is this?" */
+body[data-glass] .code, body[data-glass] .swatch, body[data-glass] .artifact .kind {
+  border-color: var(--gl-rim-dim); border-radius: 8px;
+}
+
+/* ---- main canvas ---------------------------------------------------------------- */
+body[data-glass] .main { background: none; }
+body[data-glass] .grid {
+  background: none;
+  /* the grid is a scroller, so pane glows would slice flat at its bounds —
+     the exact "separator line" against the rail and the shortcut bar.
+     Fade the edges instead: glass melts into the frame. */
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%),
+    linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  mask-composite: intersect;
+}
+body[data-glass] .lane-empty .hint { color: var(--muted); }
+body[data-glass] .bond-deck-badge { background: rgba(0, 168, 107, 0.15); border-color: rgba(0, 168, 107, 0.35); color: #10B981; backdrop-filter: blur(12px); }
+body[data-glass] .bond-deck-badge .deck-dot { background: #10B981; box-shadow: 0 0 8px #10B981; }
+body[data-glass] .bond-feature-cards .b-card { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.08); backdrop-filter: blur(16px); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+body[data-glass] .bond-feature-cards .b-card:hover { border-color: #10B981; box-shadow: 0 8px 32px rgba(0, 168, 107, 0.2); }
+body[data-glass] .bond-feature-cards .b-card-title { color: #ffffff; }
+body[data-glass] .bond-feature-cards .b-card-desc { color: var(--muted); }
+
+/* terminals sit flush on the glass pane — no inner box, so any CLI's own TUI
+   (claude, opencode, …) reads as the tile's content instead of a box-in-a-box.
+   All horizontal breathing room lives on .xterm because FitAddon only subtracts
+   that element's padding when computing columns; the parent stays at zero. */
+/* The glass body sets letter-spacing: -0.01em for tight premium tracking, and it
+   inherits into xterm's hidden char-measuring element — xterm then sizes a cell
+   0.16px narrower than the font really paints, computes too many columns, and
+   every line runs past the pane and loses its tail. Terminals opt out of
+   tracking entirely so measured width == painted width. */
+body[data-glass] .term-body,
+body[data-glass] .term-body .xterm { letter-spacing: normal; }
+body[data-glass] .term-body { padding: 0; }
+/* same breathing room as the other themes, but on .xterm rather than the body:
+   the glass panes bleed their blur to the tile edge, so padding the body would
+   punch a hard-edged frame out of it */
+body[data-glass] .term-body .xterm { padding: 12px 14px 12px 12px; }
+body[data-glass] .ed-gutter { color: var(--faint); background: none; }
+body[data-glass] .ed-stack, body[data-glass] .ql-lines { background: none; }
+body[data-glass] .editor--md .ed-area { caret-color: var(--gl-accent); }
+body[data-glass] .editor--md .ed-area::selection { background: rgba(0, 168, 107, 0.24); }
+body[data-glass] .ed-area, body[data-glass] .card-body, body[data-glass] .card-raw .raw-area { background: none; caret-color: var(--gl-accent); }
+body[data-glass] .ed-bar { border-top: 1px solid var(--dash); background: none; }
+/* Solid rim, not paper's dash — but the fill stays, because a state strip is
+   the one band on the tile that has to be seen without being read. */
+body[data-glass] .disk-bar { border-bottom: 1px solid var(--amber-line); background: var(--amber-bg); }
+body[data-glass] .disk-bar .btn { border-radius: 999px; box-shadow: none; }
+body[data-glass] .cmd-strip { background: var(--gl-pane-dim); border-radius: 0 0 22px 22px; }
+body[data-glass] .card-links { background: none; border-radius: 0 0 22px 22px; }
+body[data-glass] .link-chip { border-radius: 999px; background: var(--gl-pane); border-color: var(--gl-rim-dim); }
+body[data-glass] .link-chip:hover { box-shadow: none; border-color: var(--gl-accent); color: var(--gl-accent-deep); }
+body[data-glass] .card-in, body[data-glass] .lib-search, body[data-glass] .ni-row input, body[data-glass] .agent-pick {
+  border-radius: 12px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim);
+}
+body[data-glass] .card-in:focus, body[data-glass] .lib-search:focus, body[data-glass] .agent-pick:focus-visible { border-color: var(--gl-accent); }
+/* create-sheet wells: the family's soft radius and solid rims, on the
+   --field tokens rather than --gl-pane-dim — the dim rim is the faintness
+   this sheet was corrected for. The ruled lines are a paper literal; glass
+   separates by fill. */
+body[data-glass] .ni-field input, body[data-glass] .ni-field textarea { border-radius: 12px; border-style: solid; }
+body[data-glass] .ni-field textarea { background-image: none; }
+body[data-glass] .ni-field input:focus, body[data-glass] .ni-field textarea:focus { border-color: var(--gl-accent); }
+
+/* reading content stays a text face — markdown headings in SF Pro, not dots.
+   The Edit pane speaks the same face as Read. */
+body[data-glass] .md-read { font-family: var(--gl-sans); }
+body[data-glass] .ed-rich {
+  --crepe-font-default: var(--gl-sans);
+  --crepe-font-title: var(--gl-sans);
+}
+body[data-glass] .md-read h1, body[data-glass] .md-read h2, body[data-glass] .md-read h3,
+body[data-glass] .md-read h4, body[data-glass] .md-read h5, body[data-glass] .md-read h6 {
+  font-family: var(--gl-sans); letter-spacing: -0.015em; text-transform: none;
+}
+/* em, not px: the ± dial scales .md-read, and a fixed heading would sit still
+   while the body around it grew. Same reason as the base sheet. */
+body[data-glass] .md-read h1 { font-size: 1.308em; font-weight: 700; }   /* 17/13 */
+body[data-glass] .md-read h2 { font-size: 1.154em; font-weight: 700; }   /* 15/13 */
+body[data-glass] .md-read h3 { font-size: 1.038em; font-weight: 600; }   /* 13.5/13 */
+body[data-glass] .md-read code { background: var(--gl-pane); border-color: var(--gl-rim-dim); border-radius: 6px; font-family: var(--gl-mono); }
+body[data-glass] .md-read .md-pre { background: var(--gl-well); border-color: var(--gl-well-line); border-radius: 12px; }
+body[data-glass] .md-read blockquote { border-left-color: var(--gl-accent); }
+
+/* approvals + steps */
+body[data-glass] .approval, body[data-glass] .stopped {
+  transform: none; border-radius: 14px; box-shadow: none;
+  background: var(--amber-bg); border: 1px solid var(--gl-rim-dim);
+}
+body[data-glass] .step .box { border-color: rgba(46, 125, 79, 0.5); border-radius: 6px; }
+body[data-glass] .step.done .box { background: rgba(46, 125, 79, 0.15); border-color: rgba(46, 125, 79, 0.5); }
+body[data-glass] .artifact { border-radius: 14px; box-shadow: none; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .artifact:hover { box-shadow: 0 10px 26px rgb(var(--gl-sh) / 0.14); background: var(--gl-pane); }
+body[data-glass] .reply-row { box-shadow: none; border-radius: 999px; }
+
+/* viewers */
+body[data-glass] .viewer .vw-stage { background: var(--gl-well); }
+body[data-glass] .viewer .vw-stage--dark { background: #1a1b20; }
+body[data-glass] .viewer .vw-stage img { border-color: var(--gl-rim); box-shadow: 0 12px 34px rgb(var(--gl-sh) / 0.22); border-radius: 10px; }
+
+/* ---- footer ---------------------------------------------------------------------- */
+body[data-glass] .footer {
+  border-top: none; background: none; padding: 12px 22px 15px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+body[data-glass] .footer .path { font-family: var(--gl-mono); text-transform: none; letter-spacing: 0; }
+
+/* ---- overlays ---------------------------------------------------------------------- */
+/* The scrim rides on a pseudo, not on .overlay itself, so it can be rounded and
+   masked without touching the modal sitting on it. .overlay is inset:0 inside the
+   sheet, so a square scrim puts hard corners across the sheet's 26px curve and the
+   dim reads as a rectangle dropped on the workbench. It traces the sheet instead,
+   and fades in over the last 20px so no side starts on a line.
+   ::before is first in DOM order and .overlay > * is position:relative
+   (paper.css), so the modal paints on top without any z-index. */
+body[data-glass] .overlay { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-glass] .overlay::before {
+  content: ''; position: absolute; inset: 0;
+  /* inset:0 lands on the sheet's PADDING box, inside its 1px border */
+  border-radius: calc(var(--gl-sheet-r) - 1px);
+  background: rgb(var(--gl-sh) / 0.3);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%),
+    linear-gradient(90deg,  transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  mask-composite: intersect;
+}
+body[data-glass] .modal, body[data-glass] .picker-box,
+body[data-glass] .setup-box, body[data-glass] .peek-box {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(34px) saturate(1.7); backdrop-filter: blur(34px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  border-radius: 24px; --rest: scale(1); transform: var(--rest);
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.32);
+}
+body[data-glass] .peek-head { border-bottom: 1px solid var(--dash); background: none; border-radius: 24px 24px 0 0; }
+body[data-glass] .peek-head .pk-browser:focus-visible, body[data-glass] .peek-head .pk-pin:focus-visible, body[data-glass] .peek-head .pk-x:focus-visible { outline-color: var(--gl-accent); }
+body[data-glass] .modal-head { border-bottom: 1px solid var(--dash); }
+body[data-glass] .modal-foot { border-top: 1px solid var(--dash); }
+body[data-glass] .modal-x { border-radius: 999px; }
+body[data-glass] .picker-input { border-bottom: 1px solid var(--dash); }
+body[data-glass] .picker-row { border-bottom-color: var(--dash); border-radius: 12px; }
+/* The tool list keeps the family's soft edges: the block is a slab under the
+   row it belongs to, and the dotted rules go — glass separates by fill, not by
+   line. The last-row rule in paper.css is the one thing that must survive, so
+   the block still ends cleanly against the next agent. */
+body[data-glass] .tool-list { border-radius: 12px; border-bottom: 0; background: var(--gl-pane-dim); margin: 0 0 4px 42px; padding-left: 10px; }
+body[data-glass] .tool-row { border-bottom: 0; border-radius: 9px; }
+body[data-glass] .picker-foot { border-top: 1px solid var(--dash); }
+body[data-glass] .text-input { box-shadow: none; border-radius: 12px; background: var(--gl-pane-dim); }
+body[data-glass] .pick-chip, body[data-glass] .who-tile, body[data-glass] .add-card { border-radius: 14px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .pick-chip:hover, body[data-glass] .who-tile:hover, body[data-glass] .add-card:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .ni-choice.on { box-shadow: none; border-color: var(--gl-accent); background: var(--gl-accent-dim); }
+body[data-glass] .ni-choice.off:hover { border-color: var(--gl-rim); }
+body[data-glass] .ni-where { border-radius: 10px; border-style: solid; }
+body[data-glass] .pick-chip .check { border-color: rgba(46, 125, 79, 0.5); }
+body[data-glass] .sheet-cmd, body[data-glass] .scan-box { background: var(--gl-pane-dim); color: var(--muted); border-radius: 10px; }
+body[data-glass] .ql-row .n { color: var(--faint); }
+body[data-glass] .key-row, body[data-glass] .key-note { border-radius: 14px; background: var(--gl-pane-dim); }
+body[data-glass] .key-row .k-input { border-radius: 10px; }
+body[data-glass] .key-row .k-act.k-save { color: var(--gl-accent-deep); }
+body[data-glass] .set-opt { border-radius: 14px; }
+body[data-glass] .set-test { border-top-color: var(--dash); }
+body[data-glass] .set-flag.ok { color: var(--green-ok); }
+body[data-glass] .svc-card, body[data-glass] .svc-custom, body[data-glass] .sv-fold { border-radius: 14px; background: var(--gl-pane-dim); border-color: var(--gl-rim-dim); }
+body[data-glass] .svc-card:hover, body[data-glass] .svc-custom:hover { box-shadow: none; border-color: var(--gl-rim); background: var(--gl-pane); }
+body[data-glass] .svc-card:focus-visible, body[data-glass] .svc-custom:focus-visible { box-shadow: none; border-color: var(--gl-accent); }
+
+/* corkboard map */
+body[data-glass] .board {
+  background: var(--gl-pane-dim);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid var(--gl-rim); border-radius: 22px;
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.3);
+}
+body[data-glass] .board-svg path { stroke: var(--gl-accent); stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.8; }
+body[data-glass] .board-node { border-radius: 14px; border-color: var(--gl-rim); background: var(--gl-pane-strong); box-shadow: var(--gl-slab), 0 10px 26px rgb(var(--gl-sh) / 0.18); transform: translate(-50%, -50%) !important; }
+body[data-glass] .board-node:hover, body[data-glass] .board-node.focus { box-shadow: var(--gl-slab), 0 0 0 1.5px rgba(0, 168, 107, 0.55), 0 16px 40px rgba(0, 168, 107, 0.2); }
+body[data-glass] .board-node .pin { background: var(--gl-accent); border-color: rgba(0, 168, 107, 0.6); box-shadow: 0 0 8px rgba(0, 168, 107, 0.6); }
+
+/* toast */
+body[data-glass] .toast {
+  transform: translateX(-50%); border-radius: 999px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 18px 44px rgb(var(--gl-sh) / 0.24);
+}
+body[data-glass] .toast .dot { background: var(--gl-accent); }
+body[data-glass] .toast .msg { color: var(--ink); }
+
+/* theme + context popovers */
+body[data-glass] .theme-pop, body[data-glass] .ctx-menu {
+  border-radius: 18px;
+  background: var(--gl-pane-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7); backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 24px 70px rgb(var(--gl-sh) / 0.28);
+}
+body[data-glass] .theme-opt { border-radius: 12px; }
+body[data-glass] .theme-opt.picked { border-color: var(--gl-accent); background: var(--gl-accent-dim); }
+body[data-glass] .theme-opt.picked .theme-dot { border-color: var(--gl-accent); background: radial-gradient(circle, var(--gl-accent) 0 3.5px, transparent 4px); }
+body[data-glass] .ctx-item { border-radius: 10px; }
+body[data-glass] .ctx-item:hover { background: var(--hover); }
+
+/* ---- the quick start panel ---------------------------------------------- */
+/* It arrived here as a reading panel that had only been given the modal fill —
+   which left it wearing paper's square corners and its 10px 12px 0 brown offset
+   shadow inside a theme of 24px frosted slabs. Nothing below is a new value:
+   every one is already used by the surface this panel is a kind of. Graphite is
+   a pure token remap, so this one block dresses both glass-family themes and
+   theme-graphite.css carries no .qs- rule at all. */
+body[data-glass] .qs-box {
+  background: var(--gl-pane-modal);
+  -webkit-backdrop-filter: blur(34px) saturate(1.7);
+  backdrop-filter: blur(34px) saturate(1.7);
+  border: 1px solid var(--gl-rim);
+  /* overflow, because the head and foot fill to the box edge and would
+     otherwise square off the corner they sit in */
+  border-radius: 24px; overflow: hidden;
+  box-shadow: var(--gl-slab), 0 40px 110px rgb(var(--gl-sh) / 0.32);
+}
+body[data-glass] .qs-head { padding: 16px 44px 14px 20px; border-bottom: 1px solid var(--dash); }
+/* the foot drops paper's --paper-3 wash: on a translucent modal a second fill
+   reads as a seam, and .modal-foot carries none either */
+body[data-glass] .qs-foot { padding: 12px 20px; border-top: 1px solid var(--dash); background: none; }
+/* Ruled paper is paper's texture. The 24px baseline it existed to serve goes
+   with it — glass sets its list rhythm in line-heights, not in a grid. */
+body[data-glass] .qs-body { padding: 14px; background-image: none; line-height: 1.5; }
+/* Fill, not line: the same move .tool-list, .key-row and .svc-card make. This
+   is why paper's rows carry no dividers and these need none either. */
+body[data-glass] .qs-row {
+  border-radius: 14px; background: var(--gl-pane-dim); border: 1px solid var(--gl-rim-dim);
+  padding: 12px 14px; margin: 0 0 8px;
+}
+body[data-glass] .qs-row:last-child { margin-bottom: 0; padding-bottom: 12px; }
+body[data-glass] .qs-n { color: var(--muted-2); font-family: var(--gl-mono); font-size: 10.5px; line-height: 1.5; }
+body[data-glass] .qs-t { line-height: 1.45; }
+body[data-glass] .qs-s { line-height: 1.5; margin-top: 3px; }
+body[data-glass] .qs-acts { height: auto; margin-top: 10px; gap: 8px; }
+/* the whole of .btn, type included — a sentence-case pill among uppercase ones
+   is the tell that gave the panel away */
+body[data-glass] .qs-mini {
+  height: auto; padding: 5px 13px;
+  font-family: var(--gl-dot); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  border-radius: 999px; background: var(--gl-pane); border: 1px solid var(--gl-rim);
+  box-shadow: var(--gl-slab), 0 4px 14px rgb(var(--gl-sh) / 0.07);
+}
+body[data-glass] .qs-mini--go {
+  color: #fff;
+  background: linear-gradient(150deg, rgba(16, 185, 129, 0.95) 0%, rgba(0, 168, 107, 0.95) 100%);
+  border-color: rgba(110, 231, 183, 0.9);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -10px 22px rgba(0, 99, 65, 0.25),
+    0 0 0 1px rgba(0, 168, 107, 0.3),
+    0 0 8px rgba(0, 168, 107, 0.45),
+    0 0 12px rgba(0, 168, 107, 0.3);
+}
+/* --amber-btn is not a foreign colour in either theme — it is the wrong token
+   for a footer link, which each theme already answers with --gl-link */
+body[data-glass] .qs-link { color: var(--gl-link); text-decoration-color: var(--gl-rim-dim); }
+/* The ✕ needs nothing: it is class="t-btn ov-x", so the .t-btn rule above
+   already rounds and fills it. */
+
+/* The topbar's drop ladder (foot of paper.css) hides ? and the cog on narrow
+   windows, but the icon-button restyle above sets display: grid at
+   body[data-glass] #id specificity, which outguns the media queries' plain
+   .btn-set / #btn-help selectors. Restate the hides here at the same
+   specificity, later in the cascade, so the ladder wins in glass too. */
+@media (max-width: 820px) {
+  body[data-glass] #btn-settings { display: none; }
+}
+@media (max-width: 720px) {
+  body[data-glass] #btn-help { display: none; }
+}
+
+/* Child files belong to the same curved surface family as their session. */
+body[data-glass] .nav-files { gap: 4px; }
+body[data-glass] .nav-file { border-radius: 17px; background: var(--gl-pane); }
+body[data-glass] .nav-file.sel { background: var(--gl-pane-strong); border-color: var(--ink); }
+body[data-glass] .nav-card .count { border-radius: 17px; }
+body[data-glass] .viewsw { border-radius: 17px; }
+body[data-glass] .paneview .pane-switch { border-radius: 17px; border-color: var(--gl-rim); }
+body[data-glass] .paneview .pane-switch button { background: var(--gl-pane); }
+body[data-glass] .viewsw .view-choice.active,
+body[data-glass] .paneview .pane-switch button[aria-pressed="true"] { color: #fff; background: var(--green); }
+
+body[data-glass] .image-attachment { border-radius: 12px; }
+body[data-glass] .image-insert, body[data-glass] .image-remove { border-radius: 12px; }
+
+/* Shortcut reference follows this theme’s type and link treatment. */
+body[data-glass] :is(.shortcuts-title, .shortcuts-hero h2, .shortcut-group h2) { font-family: var(--gl-dot); font-size: 18px; }
+body[data-glass] .shortcuts-link { color: var(--ink); text-decoration-color: var(--green); }
+body[data-theme="glass"] .modal--settings .set-nav .rail-tab.active { color: color-mix(in srgb, var(--ink) 90%, black); }

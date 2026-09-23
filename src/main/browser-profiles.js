@@ -1,0 +1,500 @@
+// Profile metadata and an OS-protected credential vault. No secrets cross IPC.
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const { randomUUID } = require('node:crypto');
+const { browserUrl, clean } = require('./browser-policy');
+
+const GOOGLE_LABELS = new Set(['google', 'googleapis', 'googleusercontent', 'googlevideo', 'googleadservices', 'googlesyndication', 'gmail', 'youtube', 'ytimg', 'youtu', 'gstatic', 'ggpht', 'android', 'chrome', 'chromium', 'doubleclick', 'blogger', 'googlecode', 'withgoogle', 'googlemail']);
+function registrableLabel(host) {
+  const parts = String(host || '').replace(/^\./, '').toLowerCase().split('.').filter(Boolean);
+  if (parts.length >= 3 && ['co', 'com', 'org', 'net', 'ac', 'gov'].includes(parts[parts.length - 2])) return parts[parts.length - 3];
+  return parts.length >= 2 ? parts[parts.length - 2] : (parts[0] || '');
+}
+function isGoogleHost(host) {
+  const h = String(host || '').replace(/^\./, '').toLowerCase();
+  if (!h) return false;
+  if (h === 'youtu.be' || h.endsWith('.youtu.be')) return true;
+  return GOOGLE_LABELS.has(registrableLabel(h));
+}
+function filterImportableCookies(cookies = []) {
+  const keep = []; let skippedGoogle = 0;
+  for (const cookie of cookies) {
+    if (isGoogleHost(cookie.host_key || cookie.domain || cookie.host)) skippedGoogle++;
+    else keep.push(cookie);
+  }
+  return { keep, skippedGoogle };
+}
+function uniqueDownloadPath(dir, name, exists = fs.existsSync) {
+  const safe = path.basename(String(name || 'download').replace(/[\x00-\x1f]/g, '')) || 'download';
+  let dest = path.join(dir, safe), n = 0;
+  const ext = path.extname(safe), stem = ext ? safe.slice(0, -ext.length) : safe;
+  while (exists(dest)) dest = path.join(dir, `${stem} (${++n})${ext}`);
+  return dest;
+}
+// disposition is Chromium's word for how the page asked: 'new-window' is
+// window.open from a click — the shape of every sign-in popup — and the only
+// shape that may become a real window. Everything else that points at the web
+// becomes a tab, which is where a link belongs.
+// The one place the popup default lives. The settings screen and the popup
+// handler both ask this, so what the screen shows is what the engine does. It
+// used to be two expressions that disagreed: the screen defaulted to "allow",
+// the engine to "block", and clicking the already-selected radio saved
+// nothing — a switch that looked on and was wired to nothing.
+function popupModeOf(profile) {
+  return profile && profile.popupMode === 'block' ? 'block' : 'oauth';
+}
+function popupDecision(target, policy = 'block', disposition = '') {
+  let url;
+  try { url = new URL(target); } catch { return { action: 'deny' }; }
+  if (url.protocol === 'http:' || url.protocol === 'https:') {
+    if (policy === 'oauth' && disposition === 'new-window') return { action: 'allow' };
+    return { action: 'deny', newTab: url.href };
+  }
+  if (policy === 'oauth' && url.protocol === 'about:' && url.pathname === 'blank') return { action: 'allow' };
+  return { action: 'deny' };
+}
+function permissionAllowed(stored, permission) {
+  const key = permission === 'camera' || permission === 'microphone' || permission === 'media' ? 'media' : permission;
+  return stored?.[key] === 'allow';
+}
+function cookieUrl(cookie) {
+  const host = String(cookie.host_key || '').replace(/^\./, '');
+  const pathName = cookie.path || '/';
+  return `${cookie.is_secure ? 'https' : 'http'}://${host}${pathName.startsWith('/') ? pathName : '/' + pathName}`;
+}
+function chromeExpiryUnix(expiresUtc) {
+  const value = Number(expiresUtc);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.floor(value / 1_000_000 - 11_644_473_600);
+}
+function deriveChromeKey(password) {
+  return crypto.pbkdf2Sync(String(password), 'saltysalt', 1003, 16, 'sha1');
+}
+function chromeBlobPrefix(encrypted) {
+  if (!encrypted || encrypted.length < 3) return '';
+  const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
+  return buf.subarray(0, 3).toString();
+}
+function decryptChromeBlob(encrypted, key) {
+  if (!encrypted || encrypted.length < 4) return null;
+  const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted);
+  if (chromeBlobPrefix(buf) !== 'v10') return null;
+  try {
+    const decipher = crypto.createDecipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '));
+    return Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]);
+  } catch { return null; }
+}
+// Chrome 130 and later prepend the SHA-256 of the cookie's domain to the
+// plaintext before encrypting it, so a decrypted cookie is 32 bytes of hash
+// followed by the value. Hand that whole thing to Chromium and it rejects the
+// cookie as malformed — which is how an import could report success and leave
+// you signed out: on this Mac 3,866 cookies decrypted and 31 survived the write.
+//
+// Passwords are not wrapped this way (their blobs start at 16 bytes, so there
+// is no room for a prefix), which is why this belongs to the cookie path alone.
+//
+// The prefix is detected, never assumed, so a profile written by an older
+// Chrome still imports: a SHA-256 is 32 bytes of binary, and the chance of all
+// 32 landing inside printable ASCII is about one in 10^14, while a cookie value
+// is printable by specification.
+function stripCookieDomainHash(buf) {
+  if (buf.length < 32) return buf;
+  for (let i = 0; i < 32; i++) { const b = buf[i]; if (b < 0x20 || b > 0x7e) return buf.subarray(32); }
+  return buf;
+}
+function decryptChromeCookie(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? buf.toString('utf8') : null;
+}
+function decryptChromeCookieValue(encrypted, key) {
+  const buf = decryptChromeBlob(encrypted, key);
+  return buf ? stripCookieDomainHash(buf).toString('utf8') : null;
+}
+// The directory identifies a Chromium profile; its display name and position
+// in Local State may change. Only an opaque ID crosses the renderer boundary.
+function chromiumImportSourceId(browser, directory) {
+  let canonical = path.resolve(directory);
+  try { canonical = fs.realpathSync(canonical); } catch {}
+  return crypto.createHash('sha256').update(browser + '\0' + canonical).digest('hex');
+}
+function selectChromiumImportSource(sources, sourceId) {
+  if (typeof sourceId !== 'string' || !sourceId) throw new Error('Choose a source browser profile before importing.');
+  const source = sources.find((s) => s.id === sourceId);
+  if (!source) throw new Error('The selected browser profile is no longer available. Refresh the list and choose it again.');
+  return source;
+}
+function detectChromiumProfiles({ home = os.homedir(), platform = process.platform, exists = fs.existsSync, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
+  // Every browser here is Chromium underneath, which means one profile layout,
+  // one cookie schema and one reader. Listing only Google's own builds meant a
+  // Brave or Arc user was told no profile existed, when the same code would
+  // have read theirs unchanged.
+  const roots = platform === 'darwin' ? [
+    [path.join(home, 'Library/Application Support/Google/Chrome'), 'Chrome'],
+    [path.join(home, 'Library/Application Support/Google/Chrome Beta'), 'Chrome Beta'],
+    [path.join(home, 'Library/Application Support/Google/Chrome Canary'), 'Chrome Canary'],
+    [path.join(home, 'Library/Application Support/Microsoft Edge'), 'Edge'],
+    [path.join(home, 'Library/Application Support/Chromium'), 'Chromium'],
+    [path.join(home, 'Library/Application Support/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, 'Library/Application Support/Arc/User Data'), 'Arc'],
+    [path.join(home, 'Library/Application Support/Vivaldi'), 'Vivaldi'],
+    [path.join(home, 'Library/Application Support/com.operasoftware.Opera'), 'Opera'],
+  ] : platform === 'win32' ? [
+    [path.join(home, 'AppData/Local/Google/Chrome/User Data'), 'Chrome'],
+    [path.join(home, 'AppData/Local/Microsoft/Edge/User Data'), 'Edge'],
+    [path.join(home, 'AppData/Local/BraveSoftware/Brave-Browser/User Data'), 'Brave'],
+    [path.join(home, 'AppData/Local/Vivaldi/User Data'), 'Vivaldi'],
+    [path.join(home, 'AppData/Roaming/Opera Software/Opera Stable'), 'Opera'],
+  ] : [
+    [path.join(home, '.config/google-chrome'), 'Chrome'],
+    [path.join(home, '.config/microsoft-edge'), 'Edge'],
+    [path.join(home, '.config/chromium'), 'Chromium'],
+    [path.join(home, '.config/BraveSoftware/Brave-Browser'), 'Brave'],
+    [path.join(home, '.config/vivaldi'), 'Vivaldi'],
+    [path.join(home, '.config/opera'), 'Opera'],
+  ];
+  const found = [];
+  for (const [root, browser] of roots) {
+    if (!exists(root)) continue;
+    let info = {};
+    try { info = JSON.parse(readFile(path.join(root, 'Local State'))).profile?.info_cache || {}; } catch {}
+    // '.' is not decoration: Opera's data root IS its profile — there is no
+    // Default/ under it — so a list that only ever looks one level down finds
+    // nothing and reports a browser it has just offered as missing. Roots that
+    // do use subfolders keep theirs; the root entry then holds no databases and
+    // is dropped by the check below at no cost.
+    const dirs = (Object.keys(info).length ? Object.keys(info) : ['Default']).concat('.');
+    for (const dir of dirs) {
+      const directory = path.join(root, dir);
+      const cookies = exists(path.join(directory, 'Network/Cookies')) ? path.join(directory, 'Network/Cookies')
+        : exists(path.join(directory, 'Cookies')) ? path.join(directory, 'Cookies') : '';
+      const logins = exists(path.join(directory, 'Login Data')) ? path.join(directory, 'Login Data') : '';
+      const history = exists(path.join(directory, 'History')) ? path.join(directory, 'History') : '';
+      if (!cookies && !logins && !history) continue;
+      if (found.some((f) => f.directory === directory)) continue;
+      found.push({ id: chromiumImportSourceId(browser, directory), browser, name: dir === '.' ? browser : (info[dir]?.name || dir), directory, cookies, logins, history });
+    }
+  }
+  return found;
+}
+function readChromeCookieRows(file) {
+  try { return readSqliteRows(file, 'SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies'); }
+  catch { return readSqliteRows(file, 'SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly FROM cookies'); }
+}
+function cookieImportStatus(options) {
+  const sources = detectChromiumProfiles(options);
+  return { available: sources.length > 0, browsers: sources.map((s) => ({ id: s.id, browser: s.browser, name: s.name, cookies: !!s.cookies, passwords: !!s.logins, history: !!s.history })) };
+}
+// Chrome counts time in microseconds since 1601, so a cookie expiry is a
+// 17-digit integer — bigger than Number.MAX_SAFE_INTEGER. node:sqlite will not
+// guess: it throws ERR_OUT_OF_RANGE rather than hand back a number it cannot
+// represent, and it throws on the whole statement, before the first row. That
+// is why cookies and history imported nothing while passwords (all TEXT and
+// BLOB, no timestamps in the query) came through perfectly.
+//
+// So read integers as BigInt and convert once, here. Microsecond precision is
+// not something a cookie expiry needs, and converting at the boundary is
+// cheaper and safer than auditing every consumer for BigInt arithmetic.
+function normaliseRow(row) {
+  for (const key of Object.keys(row)) if (typeof row[key] === 'bigint') row[key] = Number(row[key]);
+  return row;
+}
+function readSqliteRows(file, sql) {
+  const { DatabaseSync } = require('node:sqlite');
+  // The temp copy is disposable, so it opens read-write: a read-only
+  // connection cannot replay a -wal, which meant the copy path failed on any
+  // Mac where Chrome was mid-write and fell back to the live file for no gain.
+  const open = (target, readOnly) => {
+    const db = new DatabaseSync(target, { readOnly });
+    try {
+      const statement = db.prepare(sql);
+      statement.setReadBigInts(true);
+      return statement.all().map(normaliseRow);
+    } finally { db.close(); }
+  };
+  const tmp = file + '.nami-read-' + process.pid;
+  try {
+    fs.copyFileSync(file, tmp);
+    for (const extra of ['-wal', '-shm']) {
+      try { if (fs.existsSync(file + extra)) fs.copyFileSync(file + extra, tmp + extra); } catch {}
+    }
+    try { return open(tmp, false); }
+    finally {
+      fs.rmSync(tmp, { force: true });
+      fs.rmSync(tmp + '-wal', { force: true });
+      fs.rmSync(tmp + '-shm', { force: true });
+    }
+  } catch {
+    return open(file, true);
+  }
+}
+// A lock is what the message used to blame for everything, so name it
+// precisely: the profile is genuinely held open somewhere else. Anything else
+// keeps its own reason and its own sentence.
+function isLockError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  // EACCES and EPERM are deliberately absent. They mean the file cannot be read
+  // at all — a sandbox or TCC denial — and telling someone to quit their
+  // browser over one is the same wrong advice this whole change removes. They
+  // carry their own message instead. A Windows sharing violation is EBUSY.
+  return code === 'EBUSY' || /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(code + ' ' + message);
+}
+function readFailure(error) {
+  return { locked: isLockError(error), error: String(error?.message || error || 'Could not read the file.') };
+}
+function chromeTimeToMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  return Math.floor(n / 1000 - 11_644_473_600_000);
+}
+function readChromeLogins(file, key) {
+  let rows = [];
+  try { rows = readSqliteRows(file, 'SELECT origin_url, username_value, password_value FROM logins'); }
+  catch (error) { return { entries: [], skipped: 0, ...readFailure(error) }; }
+  const entries = []; let skipped = 0;
+  for (const row of rows) {
+    const password = key ? decryptChromeCookie(row.password_value, key) : (typeof row.password_value === 'string' ? row.password_value : null);
+    let origin = '';
+    try { origin = new URL(browserUrl(row.origin_url)).origin; } catch { skipped++; continue; }
+    if (!password || origin === 'null') { skipped++; continue; }
+    entries.push({ origin, username: String(row.username_value || '').slice(0, 2000), password });
+  }
+  return { entries, skipped, locked: false };
+}
+function readChromeHistory(file) {
+  let rows = [];
+  try { rows = readSqliteRows(file, 'SELECT url, title, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 5000'); }
+  catch (error) { return { entries: [], ...readFailure(error) }; }
+  return {
+    locked: false,
+    entries: rows.flatMap((row) => {
+      try {
+        const url = browserUrl(row.url);
+        return [{ url, title: String(row.title || '').slice(0, 200), at: chromeTimeToMs(row.last_visit_time) }];
+      } catch { return []; }
+    }),
+  };
+}
+// Each Chromium build keeps its own storage key under its own Keychain item —
+// "Brave Safe Storage", "Opera Safe Storage" and the rest all sit as separate
+// items on a Mac with several installed. Handing Brave's cookies Chrome's key
+// is worse than having no key at all: the key is truthy, so the "allow
+// Keychain access" hint is suppressed, every v10 blob then fails its padding
+// check inside decryptChromeCookie, and the import reports a cheerful zero.
+//
+// The Chrome channels are deliberately absent from this map: Beta and Canary
+// share Google Chrome's item, which is what the default already gives them.
+const SAFE_STORAGE = {
+  Edge: 'Microsoft Edge',
+  Brave: 'Brave',
+  Vivaldi: 'Vivaldi',
+  Opera: 'Opera',
+  Arc: 'Arc',
+  Chromium: 'Chromium',
+};
+function chromeKeychainPassword(browser, execFileSync, platform = process.platform) {
+  if (platform !== 'darwin') return null;   // `security` is the macOS keychain tool
+  if (typeof execFileSync !== 'function') return null;
+  const label = SAFE_STORAGE[browser] || 'Chrome';
+  try {
+    return String(execFileSync('security', ['find-generic-password', '-w', '-s', label + ' Safe Storage', '-a', label], { encoding: 'utf8', timeout: 25000, stdio: ['ignore', 'pipe', 'ignore'] })).trim() || null;
+  } catch { return null; }
+}
+// How a Chrome row becomes a cookie Chromium will actually accept.
+//
+// The whole of a sign-in lives or dies on one field. Chrome marks a cookie
+// host-only by storing its host WITHOUT a leading dot, and a host-only cookie
+// must be written with no domain at all — supplying one is not a widening, it
+// is a different cookie, and Chromium refuses it. Sending `domain` on every row
+// therefore lost every host-only cookie there was: on this Mac that was 585 of
+// 587, and it is exactly the set that keeps you logged in. GitHub arrived with
+// _octo, dotcom_user and logged_in — its three dotted cookies — while
+// user_session, _gh_sess and _device_id, all host-only, were dropped in silence.
+//
+// A __Host- cookie is stricter still: the prefix is a promise that it carries no
+// domain, sits at the root, and is secure. Break any of the three and it is
+// rejected outright.
+function cookieOptions(cookie) {
+  const host = String(cookie.host_key || '');
+  const hostPrefixed = String(cookie.name || '').startsWith('__Host-');
+  const sameSite = { 0: 'no_restriction', 1: 'lax', 2: 'strict' }[cookie.samesite] || 'unspecified';
+  const options = {
+    url: cookieUrl(cookie), name: cookie.name, value: cookie.value,
+    path: hostPrefixed ? '/' : (cookie.path || '/'),
+    // SameSite=None is only legal on a secure cookie; Chromium rejects the pair
+    // rather than repairing it, so the flag follows the value it needs.
+    secure: hostPrefixed || sameSite === 'no_restriction' ? true : !!cookie.is_secure,
+    httpOnly: !!cookie.is_httponly,
+    expirationDate: chromeExpiryUnix(cookie.expires_utc),
+    sameSite,
+  };
+  if (host.startsWith('.') && !hostPrefixed) options.domain = host;
+  return options;
+}
+async function importChromiumCookies({ session, sources, passwordFor, includeGoogle = true, log = () => {} }) {
+  let imported = 0, skippedGoogle = 0, skippedEncrypted = 0, skippedV20 = 0, rejected = 0, locked = false, decryptUnavailable = false, error = null;
+  for (const source of sources || []) {
+    let rows = [];
+    try { rows = readChromeCookieRows(source.cookies); }
+    catch (failure) { const f = readFailure(failure); locked = locked || f.locked; error = error || f.error; continue; }
+    const password = passwordFor ? passwordFor(source) : null;
+    const key = password ? deriveChromeKey(password) : null;
+    const ready = [];
+    for (const row of rows) {
+      if (!includeGoogle && isGoogleHost(row.host_key)) { skippedGoogle++; continue; }
+      const prefix = chromeBlobPrefix(row.encrypted_value);
+      if (prefix === 'v20') { skippedV20++; skippedEncrypted++; continue; }
+      const value = row.value || (key ? decryptChromeCookieValue(row.encrypted_value, key) : null);
+      if (!value) { skippedEncrypted++; if (!row.value) decryptUnavailable = true; continue; }
+      ready.push({ ...row, value });
+    }
+    for (const cookie of ready.slice(0, 5000)) {
+      try {
+        await session.cookies.set(cookieOptions(cookie));
+        imported++;
+      } catch { rejected++; }
+    }
+  }
+  log('Imported ' + imported + ' cookies, skipped ' + skippedGoogle + ' Google hosts.');
+  return { imported, skippedGoogle, skippedEncrypted, skippedV20, rejected, locked, decryptUnavailable, error };
+}
+function parsePasswordCsv(text) {
+  if (Buffer.byteLength(text) > 5 * 1024 * 1024) throw new Error('Password file is too large (maximum 5 MB).');
+  const rows = []; let row = [], field = '', quoted = false;
+  text = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') { if (quoted && text[i + 1] === '"') { field += '"'; i++; } else quoted = !quoted; }
+    else if (ch === ',' && !quoted) { row.push(field); field = ''; }
+    else if ((ch === '\n' || ch === '\r') && !quoted) { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(field); if (row.some(Boolean)) rows.push(row); row = []; field = ''; }
+    else field += ch;
+  }
+  if (quoted) throw new Error('The password CSV has an unfinished quoted field.');
+  row.push(field); if (row.some(Boolean)) rows.push(row);
+  const headers = (rows.shift() || []).map((v) => v.trim().toLowerCase());
+  const url = headers.indexOf('url'), username = headers.indexOf('username'), password = headers.indexOf('password');
+  if ([url, username, password].includes(-1)) throw new Error('Choose a Chrome password export with url, username and password columns.');
+  const entries = []; let skipped = 0;
+  for (const row of rows) {
+    try {
+      const origin = new URL(browserUrl(row[url])).origin;
+      if (origin === 'null' || !row[password] || row[password].length > 16000 || (row[username] || '').length > 2000) throw new Error();
+      entries.push({ origin, username: row[username] || '', password: row[password] });
+    } catch (_) { skipped++; }
+  }
+  if (entries.length > 5000) throw new Error('Import at most 5,000 passwords at a time.');
+  return { entries, skipped };
+}
+// What someone is told when the OS will not open its protected storage. On a
+// Mac that is a locked Keychain, which they can unlock. Windows protects the
+// vault with the signed-in account itself (DPAPI): there is nothing to unlock
+// and no Keychain to name, so it says only what is true.
+function vaultUnavailable(reading, platform = process.platform) {
+  if (platform === 'win32') return 'Windows protected password storage is unavailable.';
+  return reading ? 'Unlock macOS Keychain to use saved passwords.' : 'macOS protected password storage is unavailable.';
+}
+function createProfileStore({ directory, safeStorage, platform = process.platform }) {
+  // Windows has no 0o700: the folder is closed to other accounts once, when it
+  // is made, and profiles.json and each vault written into it inherit that. The
+  // vaults are already encrypted by the OS, so none is tightened file by file.
+  const made = fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (made) require('./owner-only').ownerOnly(made, { directory: true });
+  const metadataFile = path.join(directory, 'profiles.json');
+  let profiles;
+  try { profiles = JSON.parse(fs.readFileSync(metadataFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Browser profiles could not be read.'); profiles = [{ id: 'default', name: 'Personal' }]; }
+  if (!Array.isArray(profiles) || !profiles.length || profiles.some((p) => !/^[\w-]{1,80}$/.test(p.id) || typeof p.name !== 'string')) throw new Error('Browser profile metadata is invalid.');
+  function write(file, value) { const tmp = file + '.tmp'; fs.writeFileSync(tmp, value, { mode: 0o600 }); fs.renameSync(tmp, file); }
+  const persist = (next = profiles) => { write(metadataFile, JSON.stringify(next)); profiles = next; };
+  const defaultId = () => (profiles.find(p => p.isDefault === true) || profiles[0]).id;
+  const get = (id = 'default') => { const p = profiles.find((p) => p.id === id); if (!p) throw new Error('Browser profile is no longer available.'); return p; };
+  const vaultPath = (id) => { get(id); return path.join(directory, id + '.vault'); };
+  function available() { return safeStorage.isEncryptionAvailable(); }
+  function readVault(id) {
+    const file = vaultPath(id); if (!fs.existsSync(file)) return [];
+    if (!available()) throw new Error(vaultUnavailable(true, platform));
+    return JSON.parse(safeStorage.decryptString(fs.readFileSync(file)));
+  }
+  function writeVault(id, entries) {
+    if (!available()) throw new Error(vaultUnavailable(false, platform));
+    write(vaultPath(id), safeStorage.encryptString(JSON.stringify(entries)));
+  }
+  persist();
+  function publicProfile(p) {
+    return {
+      id: p.id, name: p.name,
+      downloadMode: p.downloadMode === 'auto' ? 'auto' : 'ask',
+      popupMode: popupModeOf(p),
+      permissions: p.permissions && typeof p.permissions === 'object' ? p.permissions : {},
+    };
+  }
+  function permissionKey(permission) {
+    return permission === 'camera' || permission === 'microphone' || permission === 'media' ? 'media' : String(permission || 'media').slice(0, 40);
+  }
+  return {
+    get, list: () => profiles.map(publicProfile), available, publicProfile, defaultId,
+    setDefault(id) {
+      get(id);
+      if (defaultId() === id) return id;
+      persist(profiles.map(p => ({ ...p, isDefault: p.id === id })));
+      return id;
+    },
+    create(name) { name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); const p = { id: randomUUID(), name }; profiles.push(p); persist(); return p; },
+    rename(id, name) { const p = get(id); name = clean(name, 80).replace(/\s+/g, ' ').trim(); if (!name) throw new Error('Name the browser profile.'); p.name = name; persist(); return { ...p }; },
+    remove(id) { get(id); if (profiles.length === 1) throw new Error('Keep at least one browser profile.'); fs.rmSync(vaultPath(id), { force: true }); profiles = profiles.filter((p) => p.id !== id); persist(); },
+    clearCredentials(id) { fs.rmSync(vaultPath(id), { force: true }); },
+    importPasswords(id, text) { get(id); const parsed = parsePasswordCsv(text), entries = readVault(id); let imported = 0;
+      for (const e of parsed.entries) { const old = entries.findIndex((v) => v.origin === e.origin && v.username === e.username); const value = { ...e, id: old < 0 ? randomUUID() : entries[old].id }; if (old < 0) entries.push(value); else entries[old] = value; imported++; }
+      writeVault(id, entries); return { imported, skipped: parsed.skipped };
+    },
+    importLogins(id, incoming = []) {
+      get(id); const entries = readVault(id); let imported = 0;
+      for (const e of incoming.slice(0, 5000)) {
+        if (!e?.origin || !e.password) continue;
+        const old = entries.findIndex((v) => v.origin === e.origin && v.username === e.username);
+        const value = { origin: e.origin, username: e.username || '', password: e.password, id: old < 0 ? randomUUID() : entries[old].id };
+        if (old < 0) entries.push(value); else entries[old] = value; imported++;
+      }
+      writeVault(id, entries); return { imported };
+    },
+    setHistory(id, entries = []) {
+      const p = get(id);
+      p.history = (entries || []).slice(0, 5000).map((e) => ({ url: String(e.url || '').slice(0, 2000), title: String(e.title || '').slice(0, 200), at: Number(e.at) || Date.now() }));
+      persist(); return { imported: p.history.length };
+    },
+    credentials(id, origin) { return readVault(id).filter((e) => !origin || e.origin === origin).map(({ id, origin, username }) => ({ id, origin, username })); },
+    credential(id, entryId, origin) { const e = readVault(id).find((e) => e.id === entryId && e.origin === origin); if (!e) throw new Error('This password does not match the current website.'); return e; },
+    deleteCredential(id, entryId) { writeVault(id, readVault(id).filter((e) => e.id !== entryId)); },
+    configure(id, patch = {}) {
+      // Only publish a settings change in memory after its disk write succeeds.
+      const p = structuredClone(get(id));
+      if (patch.downloadMode === 'ask' || patch.downloadMode === 'auto') p.downloadMode = patch.downloadMode;
+      if (patch.popupMode === 'block' || patch.popupMode === 'oauth') p.popupMode = patch.popupMode;
+      if (patch.origin && patch.permission) {
+        let origin;
+        try { origin = new URL(patch.origin).origin; } catch { throw new Error('Invalid site origin.'); }
+        if (origin === 'null') throw new Error('Invalid site origin.');
+        p.permissions ||= {};
+        p.permissions[origin] ||= {};
+        p.permissions[origin][permissionKey(patch.permission)] = patch.value === 'allow' ? 'allow' : 'deny';
+      }
+      persist(profiles.map(old => old.id === id ? p : old));
+      return publicProfile(p);
+    },
+    notePermissionRequest(id, origin, permission) {
+      const p = get(id);
+      if (!origin || origin === 'null') return publicProfile(p);
+      p.permissions ||= {};
+      p.permissions[origin] ||= {};
+      const key = permissionKey(permission);
+      if (!p.permissions[origin][key]) { p.permissions[origin][key] = 'asked'; persist(); }
+      return publicProfile(p);
+    },
+  };
+}
+module.exports = {
+  createProfileStore, parsePasswordCsv, isGoogleHost, filterImportableCookies, uniqueDownloadPath,
+  popupDecision, permissionAllowed, cookieUrl, chromeExpiryUnix, deriveChromeKey, decryptChromeCookie, decryptChromeCookieValue, stripCookieDomainHash, cookieOptions,
+  detectChromiumProfiles, selectChromiumImportSource, readChromeCookieRows, cookieImportStatus, chromeKeychainPassword, importChromiumCookies,
+  readChromeLogins, readChromeHistory, chromeTimeToMs, chromeBlobPrefix, readFailure, popupModeOf, vaultUnavailable };

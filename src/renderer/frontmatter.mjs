@@ -1,0 +1,118 @@
+// Line-preserving frontmatter round-tripper. The safety property that matters: editing a
+// field may only rewrite that field's own lines — every unrecognized key, comment, list,
+// and the entire body must survive byte-for-byte. No DOM, no Electron; unit-tested.
+
+const KEY_RE = /^([A-Za-z_][\w-]*):\s?(.*)$/;
+
+// -> { hasFrontmatter, malformed?, entries: [{key?, value?, complex?, lines[]}], body }
+export function parseDoc(text) {
+  const src = String(text == null ? '' : text);
+  if (!src.startsWith('---\n') && !src.startsWith('---\r\n')) {
+    return { hasFrontmatter: false, entries: [], body: src };
+  }
+  const m = src.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!m) return { hasFrontmatter: false, malformed: true, entries: [], body: src };
+  const entries = [];
+  for (const line of m[1].split(/\r?\n/)) {
+    const km = line.match(KEY_RE);
+    if (km) { entries.push({ key: km[1], value: km[2], lines: [line] }); continue; }
+    const last = entries[entries.length - 1];
+    if (last && last.key && (line === '' || /^\s/.test(line) || line.trim().startsWith('-'))) {
+      last.lines.push(line); last.complex = true;
+    } else {
+      entries.push({ lines: [line] }); // opaque: comments, stray text — preserved verbatim
+    }
+  }
+  return { hasFrontmatter: true, entries, body: src.slice(m[0].length) };
+}
+
+export function serializeDoc(doc) {
+  if (!doc.hasFrontmatter) return doc.body;
+  return '---\n' + doc.entries.map((e) => e.lines.join('\n')).join('\n') + '\n---\n' + doc.body;
+}
+
+export function getField(doc, key) {
+  const e = doc.entries.find((x) => x.key === key);
+  if (!e) return '';
+  const head = unquote(e.value).replace(/^[>|][+-]?$/, '').trim();
+  if (!e.complex) return head;
+  const cont = e.lines.slice(1).map((l) => l.trim()).filter(Boolean).join(' ');
+  return head ? head + (cont ? ' ' + cont : '') : cont;
+}
+
+export function setField(doc, key, value) {
+  const line = `${key}: ${quote(value)}`;
+  if (!doc.hasFrontmatter) {
+    if (doc.malformed) return doc; // never rewrite what we couldn't parse
+    doc.hasFrontmatter = true; doc.entries = [];
+  }
+  const e = doc.entries.find((x) => x.key === key);
+  if (e) { e.value = String(value); e.lines = [line]; e.complex = false; }
+  else doc.entries.push({ key, value: String(value), lines: [line] });
+  return doc;
+}
+
+// ---- the properties strip's verbs -------------------------------------------
+// Same contract as setField: one entry's own lines may change, every other
+// byte survives. A malformed document is never touched.
+
+// A block list (`key:` over `  - item` lines) as an array; null for scalars,
+// nested maps, or anything else the strip must show locked instead.
+export function listItems(doc, key) {
+  const e = doc.entries.find((x) => x.key === key);
+  if (!e || !e.complex || e.value.trim() !== '') return null;
+  const items = [];
+  for (const line of e.lines.slice(1)) {
+    if (line.trim() === '') continue;
+    const m = line.match(/^\s+-\s+(.*)$/) || line.match(/^\s+-$/);
+    if (!m) return null;                    // continuation that is not a list item
+    items.push(unquote(m[1] || ''));
+  }
+  return items;
+}
+
+export function setListField(doc, key, items) {
+  if (!doc.hasFrontmatter) {
+    if (doc.malformed) return doc;
+    doc.hasFrontmatter = true; doc.entries = [];
+  }
+  const lines = [`${key}:`, ...items.map((v) => `  - ${quote(String(v))}`)];
+  const e = doc.entries.find((x) => x.key === key);
+  if (e) { e.value = ''; e.lines = lines; e.complex = lines.length > 1; }
+  else doc.entries.push({ key, value: '', complex: lines.length > 1, lines });
+  return doc;
+}
+
+export function removeField(doc, key) {
+  if (doc.malformed) return doc;
+  const at = doc.entries.findIndex((x) => x.key === key);
+  if (at >= 0) doc.entries.splice(at, 1);
+  return doc;
+}
+
+function quote(v) {
+  v = String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim();
+  if (v === '') return '""';
+  if (/[:#"'{}\[\]&*!|>%@`]/.test(v) || /^\s|\s$/.test(v) || /^[?-]\s/.test(v)) return JSON.stringify(v);
+  return v;
+}
+function unquote(v) {
+  v = String(v == null ? '' : v).trim();
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) { try { return JSON.parse(v); } catch (_) {} }
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
+  return v;
+}
+
+// Which files this module is allowed to edit at all.
+//
+// setField deliberately *creates* frontmatter on a markdown file that has none
+// — that is the affordance which lets a bare prompt grow a name. Point it at a
+// file in another format and the same kindness becomes damage: a Codex agent is
+// TOML, has no `---` fence, and the first edit writes a YAML block on top of
+// somebody's hand-written file, leaving something Codex can no longer parse.
+//
+// So the rule lives here, next to the code it protects, rather than as a
+// condition remembered at each call site.
+export function editsAsFrontmatter(filePath) {
+  return /\.(md|markdown)$/i.test(String(filePath || ''));
+}

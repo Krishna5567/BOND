@@ -1,0 +1,414 @@
+// Chat transcript renderer — consumes normalized ACP events (acp-client's
+// normalizeUpdate) and draws the surface. Pure DOM: no protocol, no IPC.
+// The replay harness and the live pane both run this exact code.
+//
+// Copy rules (spec 7b): plain words only, no protocol vocabulary, no
+// self-narration. Everything readable is selectable; code gets a copy button.
+
+import { renderMarkdown, renderInline } from './acp-markdown.mjs';
+import { currentPlatform, isWin, sepOf, isPrintedAbsolute, resolveFrom, baseName, splitAll, toFileUrl, fromFileUrl, safeToTouch } from './paths.mjs';
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const KIND_LABEL = {
+  execute: 'Run', edit: 'Edit', read: 'Read', fetch: 'Fetch',
+  search: 'Search', delete: 'Delete', move: 'Move', think: 'Think', other: 'Tool',
+};
+
+// Does a `code` span name a file? A path that says where it starts — /abs on a
+// Mac, C:\abs or \\server\share on Windows — only has to end like a file; a
+// relative one has to end in a type we know, or every dotted identifier in a
+// reply would turn into a dead link. Windows takes `\` as well as `/` between
+// the folders; off Windows a backslash is no separator and the old rule stands
+// to the letter.
+const PATHISH = /^(~\/|\.{0,2}\/)?[\w .@-]*(\/[\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
+const PATHISH_WIN = /^(~[\\/]|\.{0,2}[\\/])?[\w .@-]*([\\/][\w .@-]+)*\.(png|jpe?g|gif|webp|svg|pdf|md|txt|ts|tsx|js|jsx|mjs|json|html|css|py|rs|go|java|sh|yml|yaml|toml|csv|log)$/i;
+export function looksLikePath(text, platform = currentPlatform()) {
+  const t = String(text == null ? '' : text);
+  if (isPrintedAbsolute(t, platform)) return /\.[a-z0-9]{1,5}$/i.test(t);
+  return (isWin(platform) ? PATHISH_WIN : PATHISH).test(t);
+}
+
+// Where a tool's image lives on disk, from the uri it came with: a bare
+// absolute path or a file:// URL. Anything else (a data: URI, a web address)
+// has no file to open. A Windows file URL is decoded, because nearly every
+// home folder there has a space in it; the Mac column is as it always was.
+export function imageOpenPath(uri, platform = currentPlatform()) {
+  const u = String(uri == null ? '' : uri);
+  if (isPrintedAbsolute(u, platform)) return u;
+  if (!u.startsWith('file:')) return '';
+  const p = fromFileUrl(u, platform);
+  if (!isWin(platform)) return p;
+  try { return decodeURIComponent(p); } catch (_) { return p; }
+}
+
+// ---- paths that name another computer ---------------------------------------
+// A reply is text nobody chose, and this file acts on it without a click: a
+// `code` span ending in .png gets a thumbnail, a markdown image is drawn, a
+// tool's image is drawn. On Windows a path can name a server, and pointing an
+// <img> at \\evil\share\a.png logs the PC in to it (the whole argument is in
+// src/main/remote-path.js). So before any of that happens the path is asked
+// about, and one that fails stays what it arrived as: words.
+//
+// `o` is the transcript's options: the session's folder and the home folder
+// are the two places a share may honestly be, so a project kept on
+// \\Mac\Home goes on drawing its own pictures. A Mac has no such paths and
+// every answer here is yes.
+const rootsOf = (o) => [o && o.cwd, o && o.home];
+
+// May this token — a path as a reply wrote it — be linked, statted or opened?
+export function touchable(token, o, platform = currentPlatform()) {
+  return safeToTouch(resolveFrom(token, o && o.cwd, o && o.home, platform), rootsOf(o), platform);
+}
+
+// The last look, at the address itself, read the way Chromium will read it
+// rather than the way it was spelled: FILE://evil/…, file:////evil/…,
+// //evil/… against a file: page, and %5C%5Cevil are all the same server.
+export function imageSrcAllowed(src, roots, platform = currentPlatform()) {
+  if (!isWin(platform)) return true;
+  let u, p;
+  try { u = new URL(String(src == null ? '' : src).trim(), 'file:///C:/'); p = decodeURIComponent(u.pathname).replace(/\\/g, '/'); } catch (_) { return false; }
+  if (u.protocol !== 'file:') return true;
+  if (u.host) return safeToTouch('\\\\' + u.host + p.replace(/\//g, '\\'), roots, platform);
+  return !p.startsWith('//') || safeToTouch(p, roots, platform);
+}
+
+// The file:// address for a thumbnail of `token`, or '' when none may be drawn.
+export function thumbSrc(token, o, platform = currentPlatform()) {
+  if (!touchable(token, o, platform)) return '';
+  const src = toFileUrl(resolveFrom(token, o && o.cwd, o && o.home, platform), platform);
+  return imageSrcAllowed(src, rootsOf(o), platform) ? src : '';
+}
+
+// A tool's image, as HTML. One that may not be drawn is shown as the address it
+// came with, in plain text: no <img>, nothing to click, no `code` span for
+// wire() to make a link of.
+export function toolImageHtml(content, o, platform = currentPlatform()) {
+  const uri = content.uri || '';
+  const src = uri || ('data:' + (content.mimeType || 'image/png') + ';base64,' + (content.data || ''));
+  const onDisk = imageOpenPath(uri, platform);
+  if ((onDisk && !safeToTouch(onDisk, rootsOf(o), platform)) || !imageSrcAllowed(src, rootsOf(o), platform)) return `<div class="cw-tool-text">${esc(uri)}</div>`;
+  const openAttr = onDisk ? ` data-open="${esc(onDisk)}"` : '';
+  return `<img class="cw-imgout"${openAttr} src="${esc(isPrintedAbsolute(src, platform) ? toFileUrl(src, platform) : src)}" alt="">`;
+}
+
+export function createTranscript(container, opts) {
+  const o = opts || {};
+  const platform = o.platform || currentPlatform();
+  container.classList.add('cw-scroll');
+  let openMsg = null, openThought = null, openUser = null, planEl = null;
+  const tools = new Map();
+  const pendingPerms = new Map();
+  let unknownCount = 0;
+
+  const toBottom = () => { if (o.noScroll) return; requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; }); };
+  function block(html, cls) {
+    const el = document.createElement('div');
+    el.className = 'cw-blk' + (cls ? ' ' + cls : '');
+    el.innerHTML = html;
+    container.appendChild(el);
+    wire(el);
+    toBottom();
+    return el;
+  }
+  function wire(root) {
+    root.querySelectorAll('code:not([data-wired])').forEach((c) => {
+      c.dataset.wired = '1';
+      const t = c.textContent.trim();
+      // A path on somebody else's server is left as the words it is: no link,
+      // no thumbnail (see touchable, above).
+      if (looksLikePath(t, platform) && touchable(t, o, platform)) {
+        c.classList.add('cw-pathlink');
+        const resolve = () => resolveFrom(t, o.cwd, o.home, platform);
+        c.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
+        const thumb = /\.(png|jpe?g|gif|webp|svg)$/i.test(t) && !c.dataset.thumbed ? thumbSrc(t, o, platform) : '';
+        if (thumb) {
+          c.dataset.thumbed = '1';
+          const th = document.createElement('button');
+          th.className = 'cw-inline-thumb';
+          th.innerHTML = '<img alt="">';
+          th.querySelector('img').src = thumb;
+          th.onclick = (e) => { e.stopPropagation(); if (o.onOpenFile) o.onOpenFile(resolve()); };
+          th.querySelector('img').onerror = () => th.remove();
+          const blk = c.closest('.cw-a, .cw-tool-text');
+          if (blk) blk.insertAdjacentElement('afterend', th);
+        }
+      }
+    });
+    root.querySelectorAll('img[data-imgsrc]').forEach((img) => {
+      // markdown images arrive src-less from the emitter (it is DOM- and
+      // cwd-free); only here do we know where the session lives on disk —
+      // and whether it is a disk at all, or somebody's server
+      const src = thumbSrc(img.dataset.imgsrc, o, platform);
+      if (!src) { img.replaceWith(document.createTextNode(img.dataset.imgsrc)); return; }
+      img.src = src;
+      img.onerror = () => img.remove();
+      img.removeAttribute('data-imgsrc');
+    });
+    root.querySelectorAll('a[data-link]').forEach((a) => {
+      // A link to a web page goes to the browser. Anything else is opened as a
+      // file, so it is asked about first: the words of a link say nothing about
+      // where it leads, and `\\evil\share\notes.md` leads to a server.
+      a.onclick = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const href = a.getAttribute('href');
+        if (o.onLink && (/^https?:/i.test(href) || touchable(href, o, platform))) o.onLink(href);
+      };
+    });
+    root.querySelectorAll('[data-copy]').forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        const pre = b.parentElement.querySelector('pre');
+        if (o.onCopy) o.onCopy(pre ? pre.textContent : '');
+        b.textContent = 'copied';
+        setTimeout(() => { b.textContent = 'copy'; }, 1200);
+      };
+    });
+    root.querySelectorAll('[data-open]').forEach((el) => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); if (o.onOpenFile && touchable(el.dataset.open, o, platform)) o.onOpenFile(el.dataset.open); });
+    });
+  }
+  function closeStreams() { openMsg = null; openUser = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; } }
+
+  // ---- event renderers ------------------------------------------------------
+  function message(text) {
+    if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; }
+    if (!openMsg) {
+      const el = block('<div class="cw-a cw-md"></div>');
+      openMsg = el.querySelector('.cw-a'); openMsg._raw = '';
+    }
+    openMsg._raw += text;
+    openMsg.innerHTML = renderMarkdown(openMsg._raw);
+    wire(openMsg);
+    toBottom();
+  }
+  function userChunk(text) {
+    openMsg = null; if (openThought) { openThought.btnLabel.textContent = 'Thought'; openThought = null; }
+    if (!openUser) { const el = block('<div class="cw-u cw-md"></div>'); openUser = el.querySelector('.cw-u'); openUser._raw = ''; }
+    openUser._raw += text;
+    openUser.innerHTML = renderMarkdown(openUser._raw);
+    wire(openUser); toBottom();
+  }
+  function thought(text) {
+    openMsg = null;
+    if (!openThought) {
+      const el = block('<button class="cw-think"><span class="tw">Thinking…</span></button><div class="cw-think-body cw-md" hidden></div>');
+      const btn = el.querySelector('.cw-think');
+      const bodyEl = el.querySelector('.cw-think-body');
+      btn.onclick = (e) => { e.stopPropagation(); bodyEl.hidden = !bodyEl.hidden; toBottom(); };
+      openThought = { body: bodyEl, btnLabel: btn.querySelector('.tw'), _raw: '' };
+    }
+    openThought._raw += text;
+    openThought.body.innerHTML = renderMarkdown(openThought._raw);
+    toBottom();
+  }
+  function toolCard(ev) {
+    closeStreams();
+    const label = KIND_LABEL[ev.kind] || KIND_LABEL.other;
+    const el = block(`<div class="cw-card"><div class="cw-card-hd"><span class="k">${esc(label)}</span> <span class="f"></span><span class="cw-run">running</span></div><div class="cw-tool-body" hidden></div></div>`);
+    el.querySelector('.f').textContent = ev.title || '';
+    el.querySelector('.cw-card-hd').addEventListener('click', () => {
+      const b = el.querySelector('.cw-tool-body'); b.hidden = !b.hidden;
+    });
+    const rec = { el, seen: new Set() };
+    tools.set(ev.id, rec);
+    toolApply(rec, ev);
+  }
+  function toolUpdate(ev) {
+    const rec = tools.get(ev.id);
+    if (!rec) return toolCard({ ...ev, status: ev.status || 'pending' });
+    toolApply(rec, ev);
+  }
+  function toolApply(rec, ev) {
+    const { el } = rec;
+    // a permission the agent resolved itself (auto modes) retires quietly
+    const pp = ev.id && pendingPerms.get(ev.id);
+    if (pp && !pp.state.answered && ev.status && ev.status !== 'pending') {
+      pp.state.answered = true;
+      pendingPerms.delete(ev.id);
+      pp.el.querySelector('.cw-perm').outerHTML = `<div class="cw-settle ok"><b>✓</b> ${esc(pp.title)} — approved automatically</div>`;
+      if (pp.onRetire) pp.onRetire();
+    }
+    if (ev.title) el.querySelector('.f').textContent = ev.title;
+    if (ev.status) {
+      const run = el.querySelector('.cw-run');
+      if (ev.status === 'completed') { run.textContent = '✓'; run.classList.add('ok'); }
+      else if (ev.status === 'failed') { run.textContent = '✗ failed'; run.classList.add('bad'); el.querySelector('.cw-tool-body').hidden = false; }
+      else run.textContent = ev.status.replace('_', ' ');
+    }
+    const bd = el.querySelector('.cw-tool-body');
+    for (const c of ev.content || []) {
+      const key = JSON.stringify(c).slice(0, 200);
+      if (rec.seen.has(key)) continue;
+      rec.seen.add(key);
+      if (c.type === 'diff') {
+        const oldLines = c.oldText == null ? [] : String(c.oldText).split('\n');
+        const newLines = c.newText == null ? [] : String(c.newText).split('\n');
+        bd.insertAdjacentHTML('beforeend',
+          `<div class="cw-diff-path"><button class="cw-filelink" data-open="${esc(c.path || '')}">${esc(shortPath(c.path, platform))}</button></div>` +
+          `<pre class="cw-diff">` +
+          oldLines.slice(0, 40).map((l) => `<span class="d">- ${esc(l)}</span>`).join('') +
+          newLines.slice(0, 40).map((l) => `<span class="a">+ ${esc(l)}</span>`).join('') +
+          `</pre>`);
+      } else if (c.type === 'content' && c.content && c.content.type === 'text') {
+        bd.insertAdjacentHTML('beforeend', `<div class="cw-tool-text cw-md">${renderMarkdown(c.content.text)}</div>`);
+      } else if (c.type === 'content' && c.content && c.content.type === 'image') {
+        bd.insertAdjacentHTML('beforeend', toolImageHtml(c.content, { cwd: o.cwd, home: o.home }, platform));
+      }
+    }
+    wire(bd);
+    toBottom();
+  }
+  function plan(ev) {
+    const done = ev.entries.filter((x) => x.status === 'completed').length;
+    const html = `<div class="cw-card cw-plan"><div class="cw-card-hd"><span class="k">Plan</span><span class="f">${done}/${ev.entries.length}</span></div>
+      <ul>${ev.entries.map((x) => `<li class="${x.status === 'completed' ? 'don' : 'tod'}${x.status === 'in_progress' ? ' cur' : ''}">${esc(x.text)}</li>`).join('')}</ul></div>`;
+    if (planEl) planEl.innerHTML = html;
+    else planEl = block(html);
+    toBottom();
+  }
+
+  return {
+    apply(ev) {
+      switch (ev.type) {
+        case 'message': message(ev.text); break;
+        case 'user': userChunk(ev.text); break;
+        case 'thought': thought(ev.text); break;
+        case 'tool': toolCard(ev); break;
+        case 'tool_update': toolUpdate(ev); break;
+        case 'plan': plan(ev); break;
+        case 'commands': if (o.onCommands) o.onCommands(ev.commands); break;
+        case 'mode': if (o.onMode) o.onMode(ev.modeId); break;
+        case 'usage': if (o.onUsage) o.onUsage(ev.used, ev.size); break;
+        case 'info': if (o.onInfo) o.onInfo(ev.title); break;
+        case 'ignore': break;
+        case 'config': if (o.onConfig) o.onConfig(ev.configOptions); break;
+        default:
+          unknownCount++;
+          if (o.onUnknown) o.onUnknown(ev);
+          console.warn('[chat] unhandled event', ev.raw && ev.raw.sessionUpdate, ev.raw);
+      }
+    },
+    userTurn(text, files) {
+      closeStreams();
+      const chips = (files || []).map((f) => `<button class="cw-u-file" data-open="${esc(f)}">📎 ${esc(baseName(f, platform))}</button>`).join('');
+      block(`<div class="cw-u cw-md">${renderMarkdown(text)}${chips ? `<div class="cw-u-files">${chips}</div>` : ''}</div>`);
+    },
+    note(text) { block(`<div class="cw-hint">${renderInline(text)}</div>`); },
+    action(text, label, cb) {
+      const el = block(`<div class="cw-hint cw-action">${renderInline(text)} <button class="cw-act-btn"></button></div>`);
+      const b = el.querySelector('.cw-act-btn');
+      b.textContent = label;
+      b.onclick = (e) => { e.stopPropagation(); cb(); };
+    },
+    error(text) { closeStreams(); block(`<div class="cw-err">${esc(text)}</div>`); },
+    permission(params, answer, onRetire) {
+      closeStreams();
+      const tcId = params.toolCall && params.toolCall.toolCallId;
+      const owned = tcId && tools.get(tcId);
+      const title = (params.toolCall && params.toolCall.title) || 'Approve this?';
+      const opts = params.options || [];
+      const el = block(`<div class="cw-perm"><div class="q">Waiting on you</div>${owned ? '' : `<code>${esc(title)}</code>`}
+        <div class="col">${(() => { const primary = opts.findIndex((x) => x.kind === 'allow_once'); return opts.map((op, i) => `<button class="cw-btn ${i === primary ? 'ap' : 'row'}" data-i="${i}">${esc(op.name)}</button>`).join(''); })()}</div></div>`);
+      const state2 = { answered: false };
+      el.querySelectorAll('.cw-btn').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          if (state2.answered) return;
+          state2.answered = true;
+          pendingPerms.delete(tcId);
+          const op = opts[+b.dataset.i];
+          el.querySelector('.cw-perm').outerHTML =
+            `<div class="cw-settle ${op.kind && op.kind.startsWith('allow') ? 'ok' : ''}"><b>${op.kind && op.kind.startsWith('allow') ? '✓' : '✗'}</b> ${esc(title)} — ${esc(op.name)}</div>`;
+          answer(op.optionId);
+        };
+      });
+      // only a genuinely blocking request opens the tool's detail
+      setTimeout(() => {
+        if (!state2.answered && owned) { const b = owned.el.querySelector('.cw-tool-body'); if (b) b.hidden = false; toBottom(); }
+      }, 600);
+      if (tcId) pendingPerms.set(tcId, { el, state: state2, title, onRetire });
+      return el;
+    },
+    question(params, reply) {
+      closeStreams();
+      const schema = params.requestedSchema || params.schema || {};
+      const props = schema.properties || {};
+      const keys = Object.keys(props);
+      const choiceKeys = keys.filter((k) => props[k].oneOf || props[k].enum);
+      const textKeys = keys.filter((k) => !props[k].oneOf && !props[k].enum);
+      let inner = '';
+      for (const k of choiceKeys) {
+        const pr = props[k];
+        const options = pr.oneOf
+          ? pr.oneOf.map((op) => ({ v: op.const, t: op.title || String(op.const), d: op.description || '' }))
+          : pr.enum.map((v, i) => ({ v, t: String((pr.enumNames && pr.enumNames[i]) || v), d: '' }));
+        if (choiceKeys.length > 1 && pr.title) inner += `<div class="cw-q-label">${esc(pr.title)}</div>`;
+        inner += `<div class="col" data-k="${esc(k)}">` + options.map((op) =>
+          `<button class="cw-btn row" data-v="${esc(String(op.v))}"><span class="qt">${esc(op.t)}</span>${op.d ? `<span class="qd">${esc(op.d)}</span>` : ''}</button>`).join('') + '</div>';
+      }
+      for (const k of textKeys) {
+        const pr = props[k];
+        inner += `<input class="cw-q-in" data-k="${esc(k)}" type="text" placeholder="${esc(pr.title || pr.description || 'Type an answer')}">`;
+      }
+      if (!keys.length) inner = '<input class="cw-q-in" data-k="answer" type="text" placeholder="Type an answer">';
+      const el = block(`<div class="cw-perm cw-question"><div class="q">Question</div><div class="cw-q-msg">${esc(params.message || '')}</div>${inner}
+        <div class="row">${textKeys.length || !keys.length ? '<button class="cw-btn ap cw-q-send">Send</button>' : ''}<button class="cw-btn row cw-q-skip">Skip</button></div></div>`);
+      let done = false;
+      const settle = (text) => {
+        done = true;
+        el.querySelector('.cw-perm').outerHTML = `<div class="cw-settle ok"><b>✓</b> ${esc(params.message || 'Question')} — ${esc(text)}</div>`;
+      };
+      const sendContent = (content, label) => {
+        if (done) return;
+        reply({ action: 'accept', content });
+        settle(label);
+      };
+      el.querySelectorAll('.col[data-k] .cw-btn').forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          const content = {};
+          content[b.parentElement.dataset.k] = b.dataset.v;
+          sendContent(content, b.querySelector('.qt').textContent);
+        };
+      });
+      const sendTexts = () => {
+        const content = {};
+        el.querySelectorAll('.cw-q-in').forEach((inp) => { if (inp.value.trim()) content[inp.dataset.k] = inp.value.trim(); });
+        if (!Object.keys(content).length) return;
+        sendContent(content, Object.values(content).join(', '));
+      };
+      const sendBtn = el.querySelector('.cw-q-send');
+      if (sendBtn) sendBtn.onclick = (e) => { e.stopPropagation(); sendTexts(); };
+      el.querySelectorAll('.cw-q-in').forEach((inp) => inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') sendTexts(); }));
+      el.querySelector('.cw-q-skip').onclick = (e) => {
+        e.stopPropagation();
+        if (done) return;
+        done = true;
+        reply({ action: 'decline' });
+        el.querySelector('.cw-perm').outerHTML = '<div class="cw-settle">Question skipped</div>';
+      };
+      return el;
+    },
+    dropTool(id) {
+      const rec = tools.get(id);
+      if (rec && rec.el && rec.el.parentElement) rec.el.remove();
+      tools.delete(id);
+    },
+    clear() { container.querySelectorAll('.cw-blk, .cw-busy').forEach((el) => el.remove()); tools.clear(); planEl = null; closeStreams(); },
+    turnEnd() { closeStreams(); },
+    setBusy(b) {
+      let el = container.querySelector('.cw-busy');
+      if (b && !el) { el = document.createElement('div'); el.className = 'cw-busy'; el.innerHTML = '<i></i><i></i><i></i>'; container.appendChild(el); toBottom(); }
+      if (!b && el) el.remove();
+    },
+    stats() { return { unknownCount, toolCount: tools.size }; },
+  };
+}
+
+// The last three pieces of a path, for a diff's one-line header.
+export function shortPath(p, platform = currentPlatform()) {
+  if (!p) return '';
+  const parts = splitAll(p, platform);
+  return parts.length > 3 ? parts.slice(-3).join(sepOf(platform)) : p;
+}

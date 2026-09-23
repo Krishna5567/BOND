@@ -1,0 +1,7150 @@
+import { createMcpSetup, CONNECT_OVERLAYS, startConnectorInstall, prereqNoteHtml } from './mcp-setup.mjs';
+import { usagePaneHtml, wireUsagePane as wireUsageContent } from './usage-pane.mjs';
+// Bond — the agent workbench (renderer, terminal-first).
+// Every session is a real PTY (claude / shell / any harness), shown as a tile in a grid you
+// can focus, reorder, and expand. Workspace is a live explorer + editor. Vanilla DOM; tiles
+// (xterm + editors) are managed incrementally so live processes survive re-renders.
+
+import { Terminal } from './vendor/xterm.mjs';
+import { FitAddon } from './vendor/addon-fit.mjs';
+import { fileKind, shellQuote, fileUrl, docUrl, tailPath, pathRef } from './file-kinds.mjs';
+import { tileMenuItems } from './tile-menu.mjs';
+import { parseDoc, getField, setField, serializeDoc, editsAsFrontmatter, listItems, setListField, removeField } from './frontmatter.mjs';
+import { resolveOpen } from './peek-core.mjs';
+import { buildCreateSeed, buildImproveSeed, targetDirFor } from './seed-text.mjs';
+import { chipHtml, iconKeyFor, iconSvg, treeIcon, pixIcon, helpIcon } from './icons.mjs';
+import { resolveTool, originLine, sortKey, isMaster, reachOf } from './agent-reach.mjs';
+import { SHELF_GROUPS, MAC_GROUP_KEYS, CLI_ORDER, shelfOf, cliKey, serviceShelf, isPickerAgent, shouldLoadMac, macCountLabel } from './library-groups.mjs';
+import { receiversOf, knowsCopy } from './receivers.mjs';
+import { agentLaunch, terminalAgentOptions } from './agent-launch.mjs';
+import { mountChatPane, CHAT_READY } from './acp-pane.mjs';
+import { grokAuthActions, GROK_API_KEY } from './grok-auth.mjs';
+import { shortAge } from './rel-time.mjs';
+import { isGenericTitle, feedNameDraft, adoptTitle, shouldPushName } from './session-name.mjs';
+import { renderMarkdown, highlightMarkdown, isMarkdownPath, docHrefTarget } from './md.mjs';
+import { mountMarkdownEditor, richMarkdownPath, markdownImageUrl } from './markdown-rich.mjs';
+import { scanLinks, urlTarget } from './term-links.mjs';
+import { termMenuItems } from './term-menu.mjs';
+import { termKeyAction, appChord } from './term-keys.mjs';
+import { createLinkHint } from './link-hint.mjs';
+import { OPEN_OUTPUT_COPY, SHORTCUT_GROUPS } from './shortcuts.mjs';
+import { isTypingTarget } from './typing-target.mjs';
+import { runBounds, leadingIndent, lastCol, rowPiece, MAX_JOINS } from './term-wrap.mjs';
+import { basesFromText, joinBase } from './path-bases.mjs';
+import { deskColumns, clampSpan, clampRows, MIN_COLS, GAP, ROW } from './desk-grid.mjs';
+import { isOutsideProject } from './path-guard.mjs';
+import { dirName, baseName, isInside, isAbsolute, hasSeparator, toDirUrl, splitSegments } from './paths.mjs';
+import { setHome, shortHome, folderOfUrl } from './home-path.mjs';
+import { decideReload, hashText, changeRange, shiftOffset } from './file-sync.mjs';
+import { createClockB } from './pty-notify.mjs';
+import { clampTermFont, nextTermFont, clampDocScale, nextDocScale, TERM_FONT_DEFAULT, DOC_STEPS } from './tile-zoom.mjs';
+import { isFile as isFilePanel, isSession as isSessionPanel, ownerFor, groupRail, previewToReplace, keep as keepFile, orphan as orphanFiles, moveTo as moveFile, splitAfter, focusSplit, splitLayout, ownerIndexes, resolveOwners } from './desk-view.mjs';
+
+import { selectionReference, appendDraft, terminalInsertion } from './session-draft.mjs';
+import { createBrowserPane } from './browser-pane.mjs';
+import { micErrorText } from './mic-error.mjs';
+import { words, kb, chordText } from './platform-words.mjs';
+
+const api = window.bond || window.dainami;
+// The machine's own words and keys: "this Mac" and ⌘N here, "this PC" and
+// Ctrl+Shift+T on Windows. Nothing below spells either out by hand, and
+// tests/windows-wording.test.mjs fails the build if something starts to.
+const W = words(api.platform);
+const kbd = (name) => chordText(name, api.platform);
+const terminalHint = createLinkHint({ document, window });
+
+// Finder can send a file the instant the page finishes loading, which is well
+// before boot() has a desk to put it on. The listener goes up here, at module
+// scope, so nothing is dropped in that gap; boot drains what arrived early.
+const earlyOpens = [];
+let deliverOpen = (ev) => earlyOpens.push(ev);
+api.onOpenFile((ev) => deliverOpen(ev));
+
+// ---- palette ---------------------------------------------------------------
+// Colour answers exactly one question: what kind of thing is this? It is never
+// derived from an id, so every service looks like a service and you only have
+// to learn the palette once. The hues live in paper.css as [data-kind] rules:
+// agent · skill · command · service · editor · viewer · shell · folder.
+// A panel's kind → its chip kind. Anything that runs an agent reads as one.
+function chipKindOf(panel) {
+  if (!panel) return 'neutral';
+  if (panel.chipKind) return panel.chipKind;
+  switch (panel.kind) {
+    case 'editor': return 'editor';
+    case 'viewer': case 'browser': return 'viewer';
+    case 'shell': return 'shell';
+    case 'card': return 'agent';
+    // every agent session is one kind — Claude, OpenCode, any other CLI — so the
+    // desk, the rail and the new-session picker all show the same green
+    default: return 'agent';
+  }
+}
+
+const XTERM_THEME = {
+  // Transparent, but with the paper's RGB channels: xterm's minimumContrastRatio
+  // measures against this color, so faint dark-theme TUI text gets re-inked for cream.
+  background: 'rgba(253,249,236,0)', foreground: '#2b2822', cursor: '#4a6b52', cursorAccent: '#fdf9ec',
+  selectionBackground: 'rgba(201,169,78,0.38)',
+  black: '#5a4b34', red: '#a8482f', green: '#4a7a4a', yellow: '#9a7420', blue: '#3f6088',
+  magenta: '#8a5f8a', cyan: '#3f7d82', white: '#6f6553',
+  brightBlack: '#8d8065', brightRed: '#b4503c', brightGreen: '#5f8f5f', brightYellow: '#a8792a',
+  brightBlue: '#5a7fae', brightMagenta: '#a07aa0', brightCyan: '#5aa0a0', brightWhite: '#2f2b26',
+};
+
+// ---- themes (operator default) ---------------------------------------------
+const THEME_KEY = 'bond-theme';
+const XTERM_THEME_OPERATOR = {
+  // Transparent over the operator panel; minimumContrastRatio re-inks
+  // cream-tuned TUI text for the dark ground.
+  background: 'rgba(31,31,31,0)', foreground: '#ecebe7', cursor: '#00A86B', cursorAccent: '#121212',
+  selectionBackground: 'rgba(0,168,107,0.28)',
+  black: '#4f4f4f', red: '#ef4444', green: '#5aa06e', yellow: '#d8a03d', blue: '#6ea8ff',
+  magenta: '#c792ea', cyan: '#5ac8c8', white: '#b8b5ae',
+  brightBlack: '#8f8d86', brightRed: '#f87171', brightGreen: '#66c17e', brightYellow: '#e8b45a',
+  brightBlue: '#8fbcff', brightMagenta: '#d7a9f0', brightCyan: '#7adcdc', brightWhite: '#f2f0ee',
+};
+// glass (light frost): ANSI deepened so every CLI stays readable on the light well
+const XTERM_THEME_GLASS = {
+  background: 'rgba(255,255,255,0)', foreground: '#34353d', cursor: '#00A86B', cursorAccent: '#ffffff',
+  selectionBackground: 'rgba(0,168,107,0.22)',
+  black: '#3c3d45', red: '#d6423e', green: '#2e7d4f', yellow: '#b07c10', blue: '#3763c9',
+  magenta: '#a4499d', cyan: '#1f7f86', white: '#8b8c96',
+  brightBlack: '#6a6b76', brightRed: '#e0524f', brightGreen: '#3f9b63', brightYellow: '#c98d1a',
+  brightBlue: '#5b82d9', brightMagenta: '#bb64b3', brightCyan: '#2f989f', brightWhite: '#1d1d22',
+};
+// graphite (dark grey glass): the same slots brightened for the smoke well
+const XTERM_THEME_GRAPHITE = {
+  background: 'rgba(25,26,32,0)', foreground: '#dcdde6', cursor: '#10B981', cursorAccent: '#26272c',
+  selectionBackground: 'rgba(0,168,107,0.3)',
+  black: '#4a4b55', red: '#ff6b67', green: '#5fca8b', yellow: '#e8b33e', blue: '#6f9dff',
+  magenta: '#d580cc', cyan: '#4fc2cc', white: '#a7a8b3',
+  brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
+  brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#f0f0f6',
+};
+const XTERM_THEME_SOFT = {
+  background: 'rgba(229,229,229,0)', foreground: '#2c2a33', cursor: '#00A86B', cursorAccent: '#e5e5e5',
+  selectionBackground: 'rgba(0,168,107,0.22)',
+  black: '#3c3d45', red: '#d6423e', green: '#3d7a4a', yellow: '#9a6c14', blue: '#3d6bb3',
+  magenta: '#7a4a8a', cyan: '#1f7f86', white: '#8b8c96',
+  brightBlack: '#6a6b76', brightRed: '#e0524f', brightGreen: '#4f9b5f', brightYellow: '#c98d1a',
+  brightBlue: '#5b82d9', brightMagenta: '#9a64b3', brightCyan: '#2f989f', brightWhite: '#2c2a33',
+};
+const XTERM_THEME_DUSK = {
+  background: 'rgba(38,42,49,0)', foreground: '#e8eaee', cursor: '#00A86B', cursorAccent: '#262a31',
+  selectionBackground: 'rgba(0,168,107,0.3)',
+  black: '#4a4b55', red: '#ff6b67', green: '#5fca8b', yellow: '#e8b33e', blue: '#6f9dff',
+  magenta: '#d580cc', cyan: '#4fc2cc', white: '#a7a8b3',
+  brightBlack: '#7c7d88', brightRed: '#ffa19e', brightGreen: '#7fdca3', brightYellow: '#f2c766',
+  brightBlue: '#93b5ff', brightMagenta: '#e3a1dc', brightCyan: '#78d8d8', brightWhite: '#e8eaee',
+};
+const STATUS_COLORS = {
+  paper: { ok: '#4a7a4a', warn: '#a8792a', mut: '#8d8065' },
+  operator: { ok: '#5aa06e', warn: '#d97706', mut: '#98958e' },
+  glass: { ok: '#2e7d4f', warn: '#b07c10', mut: '#8f9094' },
+  graphite: { ok: '#63c68a', warn: '#e6c05c', mut: '#9a9ba6' },
+  soft: { ok: '#3d7a4a', warn: '#a8792a', mut: '#8d939e' },
+  dusk: { ok: '#5fca8b', warn: '#e6c05c', mut: '#8d939e' },
+};
+const THEME_NAMES = ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk'];
+const GLASS_FAMILY = new Set(['glass', 'graphite']);
+const SOFT_FAMILY = new Set(['soft', 'dusk']);
+const XTERM_THEMES = {
+  paper: XTERM_THEME, operator: XTERM_THEME_OPERATOR, glass: XTERM_THEME_GLASS, graphite: XTERM_THEME_GRAPHITE,
+  soft: XTERM_THEME_SOFT, dusk: XTERM_THEME_DUSK,
+};
+// What a new install opens on, and the answer whenever nothing valid has been
+// chosen. Kept in step with DEFAULT_THEME in src/main/settings.js.
+const DEFAULT_THEME = 'operator';
+function normalizeTheme(name) {
+  return THEME_NAMES.includes(name) ? name : DEFAULT_THEME;
+}
+function currentTheme() {
+  const t = document.body.dataset.theme;
+  return t === undefined ? 'paper' : normalizeTheme(t);
+}
+function xtermTheme() { return XTERM_THEMES[currentTheme()]; }
+function statusColors() { return STATUS_COLORS[currentTheme()]; }
+// SF Mono in every theme's terminal and throughout Operator.
+//
+// Courier Prime is a typewriter face: thin strokes, low x-height, wide letters.
+// It is what makes Nami's chrome look hand-made and it is the worst thing about
+// reading a dense terminal — an agent's output is small, dense, and rarely
+// re-read carefully, which is the opposite of what that face is for. The glass
+// themes already made this trade; the rest now follow.
+//
+// Paper keeps Courier Prime in its UI; Operator shares the terminal's face.
+function termFontFamily() {
+  return "'SF Mono', ui-monospace, Menlo, monospace";
+}
+function applyThemeAttrs(name) {
+  name = normalizeTheme(name);
+  if (name !== 'paper' && THEME_NAMES.includes(name)) document.body.dataset.theme = name;
+  else delete document.body.dataset.theme;
+  // data-glass scopes the shared liquid-glass system CSS + the tilt engine
+  if (GLASS_FAMILY.has(name)) document.body.setAttribute('data-glass', '');
+  else document.body.removeAttribute('data-glass');
+  if (SOFT_FAMILY.has(name)) document.body.setAttribute('data-soft', '');
+  else document.body.removeAttribute('data-soft');
+}
+// Desk or Split. Persisted like the theme: localStorage for the next boot of
+// this window, settings.json so a fresh window agrees. Entering split works
+// out what the two panes show from whatever was active (desk-view.mjs).
+const VIEW_KEY = 'bond-view';
+function setView(name, persistIt = true) {
+  const view = name === 'split' ? 'split' : 'desk';
+  const was = S.view;
+  S.view = view;
+  if (persistIt && !S.demo && !S.review) { try { localStorage.setItem(VIEW_KEY, view); } catch (_) {} }
+  if (persistIt && !S.demo && !S.review && api.viewSet) api.viewSet(view);
+  if (view === 'split' && was !== 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'enter', activeId: S.activeId });
+  if (view !== 'split') S.expandedId = null;
+  applyViewAttrs();
+  if (els.grid) { renderGrid(); renderRail(); }
+}
+function applyViewAttrs() {
+  document.querySelectorAll('#viewsw .view-choice').forEach((b) => { const active = b.dataset.view === S.view; b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active)); });
+}
+let themeSaveVersion = 0;
+function setTheme(name, persistIt = true) {
+  name = normalizeTheme(name);
+  applyThemeAttrs(name);
+  if (api.themeApplied) api.themeApplied(name);
+  const version = ++themeSaveVersion;
+  let saved = Promise.resolve();
+  if (persistIt && !S.review && api.themeSet) {
+    saved = Promise.resolve(api.themeSet(name)).then((result) => {
+      if (!result || !result.ok) throw new Error('save failed');
+      if (version === themeSaveVersion) { try { localStorage.setItem(THEME_KEY, name); } catch (_) {} }
+    }).catch(() => toast('Appearance changed, but could not be saved for next launch.'));
+  }
+  tileEls.forEach((t, id) => {
+    if (!t.term) return;
+    t.term.options.theme = xtermTheme();
+    t.term.options.fontFamily = termFontFamily();
+    t.term.options.fontSize = termFontOf(S.panels.find((x) => x.id === id));
+    t.term.options.letterSpacing = termLetterSpacing();
+    markFit(t);
+  });
+  if (els.grid) { renderAll(); requestAnimationFrame(positionThemePop); }
+  return saved;
+}
+// apply the saved theme before first paint (localStorage mirrors settings.json)
+// Before first paint, and before boot data arrives. An install that has never
+// chosen a theme gets the default rather than the base stylesheet, which is
+// what "paper is the absence of an attribute" would otherwise hand it.
+try { applyThemeAttrs(localStorage.getItem(THEME_KEY) || localStorage.getItem('dainami-theme') || DEFAULT_THEME); } catch (_) { applyThemeAttrs(DEFAULT_THEME); }
+
+// ---- launcher rows ---------------------------------------------------------
+// Agents come from the detected registry (S.agents); only Terminal is static.
+// Big rows are things that run right now; small cards are things you could add.
+const EVERGREEN_ROWS = [
+  { id: 'shell', name: 'Terminal', sub: 'a plain shell, ink on paper', kind: 'shell', chipKind: 'shell', code: '❯' },
+];
+
+// ---- state -----------------------------------------------------------------
+const S = {
+  project: null, recents: [], demo: false,
+  panels: [], activeId: null, expandedId: null,
+  // Desk or Split (desk-view.mjs). split remembers what the two panes show.
+  view: 'desk', split: { sessionId: null, fileId: null, last: {} },
+  splitRatio: .46, splitFull: null,   // the divider's position; which pane ⤢ filled
+  railFold: new Set(),   // sessions whose file list is folded in the rail
+  railTab: 'sessions', overlay: null, toast: null, seq: 0, winId: 0,
+  pendingOpen: null,                    // file from Finder, waiting on a folder switch to be allowed
+  version: '', updatedAt: null,        // shown in Settings → About, filled at boot
+  agents: null, agentsLoading: false,   // detected agent CLIs (null until first scan)
+  justAdded: null,                      // agent installed this run — flagged in the launcher
+  agentStatus: {},                      // id → { signedIn, label, rows, source }, filled lazily
+  tree: {}, expanded: new Set(),   // explorer: path -> children[], expanded dirs
+  treeSel: null,                   // selected row, for the ＋ target and Enter-to-rename
+  treeEdit: null,                  // { path } while a rename input is open
+  treeDrag: null,                  // path being dragged, for the descendant guard
+  treeFresh: new Set(),            // rows that just landed, briefly marked
+  treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
+  // Your project's skills are what you came for; other tools' folders and broken
+  // links start folded, or 139 borrowed rows sit between you and everything else.
+  library: { items: [], edges: [], q: '', loaded: false, loading: false, macLoaded: false, macLoading: false, collapsed: new Set(MAC_GROUP_KEYS), macGen: 0 },
+  pointer: null, pointerLoading: false,
+  services: { catalog: [], connected: [], loading: false },   // connect-a-service state
+  railCollapsed: false, railPeek: false,
+};
+
+let els = {};
+const tileEls = new Map();
+const browsers = createBrowserPane({ api, state: S, tiles: tileEls, uid, esc, helpIcon, isFile: isFilePanel, isSession: isSessionPanel,
+  pin: pinFilePanel, focus: focusPanel, refresh: renderAll, save: savePanels,
+  show: (o) => { S.overlay = o; renderOverlay(); }, dialog: overlay, close: closeOverlay, toast,
+  selection: openSelectionDraft, insertAnnotation, sessions: () => S.panels.filter(isSessionPanel).filter(p=>!p.exited), panelIcon:panelChip, settings: openSettings, closePanel, dictation: { start: startAnnotationDictation },
+  tileMenu: (p) => tileMenu(p), showMenu: (x, y, items) => showMenu(x, y, items), openOutside: (p) => openOutside(p) });
+function attachCompanion(p,owner) {
+  if(!p||!owner)return;
+  p.companionOf=owner;
+  if(S.view!=='split')setView('split');
+  S.split=splitAfter({...S.split,panels:S.panels},{type:'select-companion',id:p.id});S.splitFull=null;
+  renderGrid();renderRail();savePanels();
+}
+async function insertAnnotation(payload,destinations) {
+  const inserted=[],failed=[];
+  for(const id of destinations) {
+    try {
+    const rec=tileEls.get(id),p=S.panels.find(p=>p.id===id);
+    if(!p||p.exited||!rec){failed.push({id,error:'Session is closed.'});continue;}
+    let text=payload.text || `${payload.note}\n\n${payload.reference}`;
+    if(payload.image) {
+      const grant=await api.browserAnnotationImage({action:'grant',id:payload.image.id,recipientIds:[id]});
+      if(!grant?.ok){failed.push({id,error:grant?.error||'Image unavailable.'});continue;}
+    }
+    let ok;
+    if(rec.insertSessionDraft) {
+      const r=await rec.insertSessionDraft({text,images:payload.image?[payload.image]:[]});ok=r?.ok;
+    } else {
+      if(payload.image)text+=`\n\nScreenshot file reference: ${JSON.stringify(payload.image.path)}\nNami image ID: ${payload.image.id} (available through nami_read_annotation_image when connected).`;
+      ok=await insertSessionText(id,text,{focus:false});
+    }
+    if(ok){inserted.push(id);rememberContext(id,{reference:payload.reference||payload.url,text,insertedAt:Date.now()});}
+    else failed.push({id,error:'Could not insert into this input.'});
+    } catch(error) { failed.push({id,error:error.message||'Insertion failed.'}); }
+  }
+  if(inserted.length)toast('Feedback inserted into '+inserted.length+' session input'+(inserted.length===1?'':'s')+'.');
+  return {ok:failed.length===0,inserted,failed};
+}
+// panelId -> { root, head, body, term, fit, statusDot, ta, gutter }
+
+// w<winId> makes the name unique across every open window: main keys its session
+// maps by whatever id we invent here, and on its own S.seq restarts at 1 in each
+// window. See the boot handler in main.js. Ids are opaque everywhere (nothing
+// parses one, none is written to state.json), so the prefix is free.
+function uid(p) { S.seq += 1; return `w${S.winId}_${p}${S.seq}`; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function shorten(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function code2(str) {
+  const w = String(str || '').replace(/[^a-zA-Z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+  return (String(str || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2) || 'SS').toUpperCase();
+}
+// The last piece of a path, by the platform's separators (paths.mjs): on a Mac a
+// backslash is part of a name, and splitting on it cut "notes\draft.md" in two.
+function baseNameOf(p) { return splitSegments(p || '').pop() || '(file)'; }
+// The format a file is in, for a tab that should not call TOML "Markdown".
+function formatLabel(p) {
+  const m = baseNameOf(p).match(/\.([A-Za-z0-9]+)$/);
+  return m ? m[1].toUpperCase() : 'Raw';
+}
+function q(sel, root) { return (root || document).querySelector(sel); }
+// A panel's chip: brand glyph when the session maps to a known brand, else its code.
+function panelChip(p) {
+  if (p.kind === 'browser') return `<span class="code code--icon" data-kind="viewer">${helpIcon('browser')}</span>`;
+  if (isFilePanel(p)) return `<span class="code code--icon" data-kind="${chipKindOf(p)}">${treeIcon(p.filePath || p.title, 'file')}</span>`;
+  const key = p.kind === 'claude' ? 'claude'
+    : iconKeyFor(p.agentId) || iconKeyFor(p.title);
+  return chipHtml({ key, code: p.code, kind: chipKindOf(p) });
+}
+
+// ---- OS file drops ---------------------------------------------------------
+function isFileDrag(e) { return dragTypes(e).includes('Files'); }
+// A row dragged out of the Workspace tree. It carries its path in a private type
+// as well as in text/plain, because text/plain already means "panel id" to the
+// tile reorder — one channel, two meanings, and the tile could only guess. The
+// payload itself is unreadable until the drop fires (browsers hide getData
+// during dragover), so in flight this is all there is to go on, exactly as with
+// isFileDrag above.
+//
+// Whether the row is a folder rides as a second *type* rather than as data, for
+// exactly that reason: the canvas has to refuse a folder while you are still
+// holding it, and a hidden payload cannot answer that.
+const PATH_TYPE = 'application/x-nami-path';
+const DIR_TYPE = 'application/x-nami-dir';
+const PANEL_TYPE = 'application/x-nami-panel'; // a file row dragged onto a session row in the rail
+function dragTypes(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []); }
+function isPathDrag(e) { return dragTypes(e).includes(PATH_TYPE); }
+function isDirDrag(e) { return dragTypes(e).includes(DIR_TYPE); }
+function draggedPath(e) { try { return e.dataTransfer.getData(PATH_TYPE) || ''; } catch (_) { return ''; } }
+function droppedPaths(e) {
+  return Array.from((e.dataTransfer && e.dataTransfer.files) || [])
+    .map((f) => api.droppedFilePath(f)).filter(Boolean);
+}
+function dropFilesOnPanel(p, paths) {
+  if (p.kind === 'editor' || p.kind === 'viewer') { paths.forEach((f) => openFile(f, { pin: true })); return; }
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id);
+    if (t && t.acpAttach) paths.forEach((f) => t.acpAttach('\u{1F4CE} ' + baseNameOf(f), { path: f }));
+    toast('Attached ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' \u2014 path goes to the agent');
+    return;
+  }
+  injectToSession(p, paths.map(shellQuote).join(' ') + ' ');
+  toast('Dropped ' + (paths.length === 1 ? baseNameOf(paths[0]) : paths.length + ' files') + ' into ' + shorten(p.title, 24));
+}
+// A workspace path dropped on a session. The file does not move and nothing is
+// copied — the session is handed a reference to where it already lives.
+//
+// S.treeDrag is cleared here rather than left to the row's own dragend, because
+// both of the paths below rebuild the rail synchronously — injectToSession
+// focuses the panel, which calls renderRail, which empties the container the
+// dragged row lives in. The row is gone before dragend would reach it. Every
+// tree drop on master ended in wireDrop.ondrop, which nulls this itself; these
+// two are the first that do not, and a stale S.treeDrag is not inert — the next
+// no-files drag onto a tree row would move a file you are not holding.
+function dropPathOnPanel(p, path, isDir) {
+  S.treeDrag = null;
+  if (p.kind === 'editor' || p.kind === 'viewer') { if (!isDir) openFile(path, { pin: true }); return; }
+  injectToSession(p, pathRef(path, S.project && S.project.path, isDir));
+  toast('Added ' + baseNameOf(path) + ' to ' + shorten(p.title, 24));
+}
+
+// ===========================================================================
+//  Boot
+// ===========================================================================
+(async function boot() {
+  // Before buildShell paints: the lights deck and the windows overlay gutter
+  // are per-OS CSS, keyed off this attribute.
+  document.body.dataset.platform = api.platform || '';
+  api.onFullScreen((on) => document.body.classList.toggle('is-fullscreen', !!on));
+  buildShell();
+  const b = await api.boot();
+  S.winId = b.winId || 0;
+  // Before anything draws a path: on Windows `~` is this folder, and no path
+  // can say where it is (home-path.mjs).
+  setHome(b.home);
+  S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
+  // The wordmark's caption. Rendered empty by buildShell and filled here, so
+  // the lockup is never laid out twice — the stack is sized by Nami above it,
+  // and a build that somehow reports no version simply shows nothing.
+  if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
+  S.review = !!b.review;
+  S.demo = b.demo; S.recents = b.recentFolders || []; S.project = b.currentFolder || null;
+  // Here, not in buildShell: buildShell runs before this await resolves, so the
+  // project was still null there and the window watched nothing at all until you
+  // opened a different folder. Whatever boot restored is watched from now,
+  // whichever rail tab the window happens to open on.
+  watchProject();
+  setSttInfo(b.sttInfo);
+  if (b.collapsed) S.railCollapsed = true;
+  setTheme(b.themeArg || b.theme || DEFAULT_THEME, false);
+  if (!S.review) { try { localStorage.setItem(THEME_KEY, currentTheme()); } catch (_) {} }
+  // The view you left the app in. localStorage is this window's memory,
+  // settings.json the shared one; a --scene may force one for a screenshot.
+  let view = null; if (!S.demo) { try { view = localStorage.getItem(VIEW_KEY); } catch (_) {} }
+  setView(S.demo ? 'desk' : (view || b.view || 'desk'), false);
+
+  // One window opening a folder reorders the list for every window; without this
+  // the other windows' popovers keep showing a stale order until they reboot.
+  // Either the check already ran before this window existed (boot carries it),
+  // or it lands later while the window is open.
+  if (b.update) offerUpdate(b.update, b.updater);
+  api.onUpdateAvailable(offerUpdate);
+  api.onUpdateProgress((ev) => paintUpdate('downloading', ev));
+  api.onUpdateReady((ev) => paintUpdate('ready', ev));
+  api.onUpdateFailed(() => paintUpdate('failed', {}));
+
+  api.onRecentsChanged((rows) => {
+    S.recents = rows || [];
+    if (q('.projects-pop')) { q('.projects-pop').remove(); toggleProjectsPop(); }
+  });
+
+  api.onTermData(({ id, data }) => {
+    const t = tileEls.get(id); if (t && t.term) t.term.write(data);
+    // when a byte last moved — the auto-takeover's "is the terminal mid-task"
+    const p = S.panels.find((x) => x.id === id); if (p) p.lastPtyData = Date.now();
+  });
+
+  // Main watched the agent's store after spawn and found the conversation this
+  // terminal-run tile landed in — save it so the next launch resumes it. A tile
+  api.onTermSessionId(({ id, sid }) => {
+    const p = S.panels.find((x) => x.id === id);
+    if (!p || !sid || p.acpSid) return;
+    p.acpSid = sid;
+    savePanels();
+  });
+
+  // A one-shot command Nami ran on the user's behalf has landed. The shell is
+  // still alive and still theirs — this is the command reporting, not the tile
+  // ending. See src/main/run-done.js for how the shell says so.
+  api.onTermCommandDone(({ id, code }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    runCommandFinished(p, code);
+  });
+
+  api.onTermExit(({ id, code, note }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    p.exited = true; p.status = 'exited';
+    // main writes the note, because only it knows whether Nami ended this
+    // session or the process did. `code` stays in the payload for older paths.
+    const said = note || `exited · ${code}`;
+    const t = tileEls.get(id); if (t && t.term) t.term.write(`\r\n\x1b[38;2;141;128;101m[${said}]\x1b[0m\r\n`);
+    // A panel can care that its command finished — an agent sign-out re-reads
+    // who is signed in, so the details sheet is never stale.
+    if (p.onExit) { try { p.onExit(code); } catch (_) {} }
+    refreshTileHead(p); refreshRail(); renderHeader(); browsers.decorate();
+  });
+
+  // Claude names its own conversation a few turns in, and re-names it as the
+  // work moves on. That name is what `claude --resume` will show tomorrow, so
+  // the rail shows it too — unless you named the tile yourself.
+  api.onSessionTitle(({ id, title }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p) return;
+    applyTitle(p, title, 'agent');
+  });
+
+  // /resume inside a tile lands claude in a different conversation than the one
+  // nami pinned at spawn. Storing the id it actually moved to is what makes the
+  // tile come back as that conversation next launch instead of an empty one.
+  api.onSessionSid(({ id, sid }) => {
+    const p = S.panels.find((x) => x.id === id); if (!p || !sid || p.sid === sid) return;
+    p.sid = sid;
+    savePanels();
+  });
+
+  api.onMenuCommand((cmd) => runMenuCommand(cmd));
+
+  if (S.demo) seedDemo();
+  refreshAgents();   // pre-detect so ⌘N is instant
+  refreshServices(); // services group in the library + connect sheets
+  renderAll();
+  if (!S.demo && Array.isArray(b.panels) && b.panels.length) restorePanels(b.panels);
+  // Nothing auto-starts: an empty desk lands on the session page, where the
+  // agent and the surface are chosen. Scenes keep the desk to themselves.
+  // A file already on its way from Finder means the desk is about to have
+  // something on it, and the launcher would open straight over the top of it.
+  else if (!S.demo && !b.scene && S.project && !earlyOpens.length) openLauncher();
+  if (b.scene) showScene(b.scene);
+  // The desk exists now, so anything Finder sent during boot can land.
+  deliverOpen = receiveOpenFile;
+  while (earlyOpens.length) receiveOpenFile(earlyOpens.shift());
+  armStarAsk();
+})();
+
+// --scene= puts one surface on screen at boot so `npm run shot` can capture it in both
+// themes. Screenshot plumbing only; nothing in the app calls this.
+function showScene(name) {
+  const [what, ...rest] = String(name).split(':');
+  const step = rest.join(':'); // a step can be a path, and paths carry colons' worth of slashes
+  if (what === 'browser') {
+    const sess = S.panels.find(isSessionPanel);
+    if (S.demo && step === 'multi' && sess) S.panels.push({ ...sess, id: uid('p_'), title: 'Codex session', code: 'CX', sceneStatic: true });
+    if (sess) S.activeId = sess.id;
+    browsers.open('about:blank', null, sess?.id);
+    setView('split', false); return;
+  }
+  if (what === 'settings') return openSettings(step || 'voice');
+  // split: the demo desk with its files joined to the session, in the split view
+  if (what === 'split') {
+    const sess = S.panels.find(isSessionPanel);
+    const first = S.panels.find(isFilePanel);
+    if (sess && first) {
+      first.owner = sess.id;
+      const second = { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'webauthn.ts', filePath: '/Users/calvin/work/atlas/src/auth/webauthn.ts', owner: sess.id, preview: true, status: 'live',
+        text: "export async function verifyRegistration(cred: Credential) {\n  const res = await fetch('/api/webauthn/verify', {\n    method: 'POST', body: JSON.stringify(cred),\n  })\n  if (!res.ok) throw new Error('registration rejected')\n  return res.json()\n}\n" };
+      S.panels.splice(S.panels.indexOf(first), 0, second);
+      S.activeId = first.id;
+    }
+    setView(step === 'desk' ? 'desk' : 'split', false); renderHeader();
+    return;
+  }
+  // chat: a static transcript so the thinking/tool cards can be shot without
+  // a live agent. chat-live still starts a real Claude pane.
+  if (what === 'chat') {
+    const np = {
+      id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: 'Claude Code',
+      agentId: 'claude', cwd: (S.project && S.project.path) || '~',
+      status: 'live', started: true, sceneStatic: true,
+    };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    const rec = tileEls.get(np.id);
+    // chat:md — one fixed markdown-heavy reply through the real renderer, so
+    // the six themes can be shot against identical pixels.
+    if (step === 'md' && rec && rec.cwFeed) {
+      rec.cwFeed({ type: 'user', text: 'compare the agents we support and what is left to test' });
+      rec.cwFeed({ type: 'message', text: '## Agent roster\n\nAll six connect over the same channel — **one renderer, zero per-agent code**.\n\n'
+        + '| Agent | Commands | Modes | Chat |\n|---|---|---|---|\n| claude | 96 | 6 | yes |\n| kimi | 35 | 4 | yes |\n| codex | 6 | 3 | yes |\n| grok | 97 | — | yes |\n\n'
+        + '### Still to verify\n\n- long replies with *mixed* formatting\n  - nested points like this one\n  - links inside bold — **[works now](https://dainami.ai)**\n- [x] tables render clean\n- [ ] half-streamed table mid-reply\n\n'
+        + '> Note: raw HTML in a reply stays escaped — it can never run.\n\n'
+        + 'Run the probe again after any CLI update: `tools/acp-probe.mjs`\n\n'
+        + '```sh\nfor a in claude kimi codex grok; do\n  probe "$a" && echo "$a ok"\ndone\n```\n\n~~hermes pending~~ — verified 26 Aug.' });
+      return;
+    }
+    const host = rec && rec.body && rec.body.querySelector('.cw-scroll');
+    if (host) {
+      const empty = host.querySelector('.cw-empty');
+      if (empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        '<div class="cw-blk"><div class="cw-u">Compare our pricing with the top 20 competitors</div></div>'
+        + '<div class="cw-blk"><button class="cw-think"><span class="tw">Thinking…</span></button>'
+        + '<div class="cw-think-body">I\'ll line up the 20 sites first, then pull pricing into a sheet.</div></div>'
+        + '<div class="cw-blk"><div class="cw-card"><div class="cw-card-hd"><span class="k">Read</span> <span class="f">pricing.csv</span><span class="cw-run ok">done</span></div></div></div>'
+        + '<div class="cw-blk"><div class="cw-card cw-plan"><div class="cw-card-hd"><span class="k">Plan</span><span class="f">1/3</span></div>'
+        + '<ul><li class="don">Read pricing.csv</li><li class="tod">Line up 20 competitor sites</li><li class="tod">Build the spreadsheet</li></ul></div></div>'
+        + '<div class="cw-blk"><div class="cw-a">Lined up the sheet. 20 competitors, our rows on top.</div></div>');
+    }
+    return;
+  }
+  // chat-live: spawn a real Claude chat pane, expanded (gate screenshots)
+  if (what === 'chat-live') {
+    const liveCwd = folderOfUrl(new URL('../../../../', location.href).href);
+    const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: 'CC', title: step || 'Claude Code', agentId: step || 'claude', cwd: liveCwd, status: 'live', started: true };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    return;
+  }
+  // doc:disk — a file tile with unsaved edits and the changed-on-disk bar
+  // raised over them, which is the one state nothing in the app can be clicked
+  // into on demand: it needs an agent to rewrite the file at the right moment.
+  if (what === 'doc' && step === 'disk') {
+    const np = {
+      id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'NOTES.md',
+      filePath: ((S.project && S.project.path) || '/Users/calvin/work/atlas') + '/NOTES.md',
+      status: 'live', dirty: true,
+      text: '# Release notes\n\n- Follow a file on disk while it is open on the desk\n- Name the files behind a folder change\n\nStill to write: the part about what happens\nwhen two people have the same file open.\n',
+    };
+    S.panels.unshift(np); S.activeId = np.id; S.expandedId = np.id;
+    renderGrid(); renderRail(); renderHeader();
+    const rec = tileEls.get(np.id);
+    if (rec && rec.raiseDiskBar) rec.raiseDiskBar(np.text + '\n## Written by the agent while you were typing\n');
+    return;
+  }
+  // open:<abs path> — pin any file as a tile, which is how a new viewer kind
+  // gets screenshotted without a folder open and a tree to click through.
+  if (what === 'open' && step) return openFile(step, { pin: true });
+  // peek:<abs path> — the floating file sheet, used for controls that live in
+  // the peek head rather than on a pinned tile.
+  if (what === 'peek' && step) return openFile(step);
+  // The folder-first card asks where a session should run when no folder is
+  // open. :empty shoots the first-run face (no recents on file).
+  if (what === 'folder-first') {
+    if (step === 'empty') S.recents = [];
+    S.project = null;
+    S.overlay = { type: 'folder-first', run: () => {}, who: 'Claude' };
+    return renderOverlay();
+  }
+  // The ⌘K picker, and the same picker with one agent's tool list open.
+  //   --scene=agents  ·  agents:<slug>
+  // Both wait on the detect pass: without it the rows cannot name a tool.
+  if (what === 'agents') {
+    return refreshAgents().then(async () => {
+      await openAgentPicker();
+      if (!step) return;
+      const item = pickerAgents().find((a) => a.slug === step);
+      if (item) await openToolList(item);
+    });
+  }
+  // agent surfaces need the detect pass to have landed, and the sheet also
+  // needs that agent's identity, so both wait rather than shooting "checking…"
+  if (what === 'launcher' || what === 'agent' || what === 'agent-remove') {
+    return refreshAgents().then(async () => {
+      if (what === 'launcher') return openLauncher();
+      const a = (S.agents || []).find((x) => x.id === step) || (S.agents || []).find((x) => x.found);
+      if (!a) return openLauncher();
+      await refreshAgentStatus(a.id);
+      return what === 'agent' ? openAgentSheet(a) : openAgentRemove(a);
+    });
+  }
+  // An install that has just finished — the one state you cannot arrange on
+  // demand without actually installing something. The tile is static (no pty),
+  // but finishAgentInstall is the real one: it re-scans and decides from what
+  // it finds, so the shot shows what a user would see and not a mock of it.
+  //   --scene=install:ok  ·  install:failed  ·  install:launcher
+  if (what === 'install') {
+    return refreshAgents().then(async () => {
+      if (step === 'launcher') {
+        const found = (S.agents || []).find((x) => x.found);
+        S.justAdded = found && found.id;
+        return openLauncher();
+      }
+      const fail = step === 'failed';
+      // ok needs an agent this Mac really has, so the scan can confirm it.
+      // failed is driven by the exit code, which is what actually decides —
+      // a machine with every agent already installed (this one, as it turns
+      // out) has no missing agent to borrow for the shot.
+      const a = (S.agents || []).find((x) => x.found) || (S.agents || [])[0];
+      if (!a) return undefined;
+      const p = startPanel({
+        kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install,
+        oneShot: true, purpose: 'installer', agentId: a.id, sceneStatic: true,
+      });
+      if (!p) return undefined;
+      await new Promise((r) => requestAnimationFrame(r));
+      const t = tileEls.get(p.id);
+      if (t && t.term) {
+        t.term.write(`\x1b[38;5;246m$ ${a.install}\x1b[0m\r\n`);
+        t.term.write('  resolving host…\r\n  downloading  ████████  100%\r\n');
+        t.term.write(fail ? '\x1b[38;5;174mcurl: (6) Could not resolve host\x1b[0m\r\n'
+          : `\x1b[38;5;114m  ✓ ${a.bin} installed\x1b[0m\r\n`);
+      }
+      return runCommandFinished(p, fail ? 6 : 0);
+    });
+  }
+  if (what === 'projects') return toggleProjectsPop();
+  // newfile / newfolder — the create box. It had no scene, so every screenshot
+  // of this app was taken without it, and its header shipped wrapped across two
+  // lines under a three-line path before anyone saw it.
+  if (what === 'newfile' || what === 'newfolder') {
+    const ready = S.project ? Promise.resolve() : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(() => {
+      S.railTab = 'workspace'; renderRail();
+      // step lets a shot aim at a deep folder, which is the case that broke it
+      const dir = step || (S.project && S.project.path) || '~';
+      openFsName(what === 'newfile' ? 'file' : 'folder', dir);
+    });
+  }
+  // The update card only appears when a newer release exists, which is exactly
+  // the state you cannot arrange on demand — so the scene fakes the payload.
+  // A download in flight and one waiting for a quit are two more states nobody
+  // can arrange on demand, and they are the two the user stares at longest.
+  //   --scene=update  ·  update:downloading  ·  update:ready  ·  update:confirm
+  if (what === 'update') {
+    localStorage.removeItem(SKIPPED_UPDATE);
+    const staged = step === 'downloading' || step === 'ready' || step === 'confirm';
+    offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
+    if (staged) paintUpdate(step, { percent: 58, version: '0.2.0', live: 3 });
+    return undefined;
+  }
+  // Same problem as the update card: the star ask is gated on five launches and
+  // a 90-second wait, which is not a state anyone can arrange for a screenshot.
+  if (what === 'star') {
+    localStorage.removeItem(STAR_ASKED);
+    return paintStarAsk();
+  }
+  // rename:tile / rename:rail — the in-place name editor, which you can only
+  // otherwise reach by double-clicking a live session
+  if (what === 'rename') {
+    const p = S.panels.find((x) => isSessionPanel(x));
+    if (!p) return;
+    const t = tileEls.get(p.id);
+    return beginRename(p, step === 'rail' ? q('.rail-list .nav-card .goal') : t && q('.t-title', t.head));
+  }
+  if (what === 'theme') return toggleThemePop();
+  if (what === 'term-scroll') {
+    const p = S.panels.find((x) => x.kind === 'shell' || x.kind === 'claude') || S.panels[0];
+    if (!p) return;
+    S.expandedId = p.id; S.activeId = p.id; renderGrid();
+    return new Promise((resolve) => setTimeout(() => {
+      const t = tileEls.get(p.id);
+      if (t && t.term) {
+        for (let i = 0; i < 80; i++) t.term.write('  ' + String(i + 1).padStart(2, '0') + '  competitor row — pricing.csv\r\n');
+      }
+      resolve();
+    }, 700));
+  }
+  // empty desk — with a folder (demo) or none. Panels have to be cleared
+  // because --demo seeds two tiles onto the grid.
+  if (what === 'empty') {
+    S.panels = []; S.activeId = null; S.expandedId = null;
+    if (step === 'nofolder') { S.project = null; S.recents = []; }
+    renderGrid(); renderRail(); renderHeader();
+    return;
+  }
+  if (what === 'quickstart') return openQuickStart();
+  if (what === 'workspace') {
+    // the tree needs a folder; a path in the step opens that one. Fall back
+    // to the most recent if none is open.
+    const folder = step && isAbsolute(step) ? step : null;
+    const ready = folder ? openFolder(folder)
+      : S.project ? Promise.resolve()
+      : (S.recents[0] ? openFolder(S.recents[0].path) : Promise.resolve());
+    return ready.then(async () => {
+      S.railTab = 'workspace';
+      const root = S.project && S.project.path;
+      if (root) {
+        try {
+          if (!S.tree[root]) S.tree[root] = await api.listDir(root, S.treeAll);
+          const kids = S.tree[root] || [];
+          const firstDir = kids.find((n) => n.kind === 'dir' && n.name === 'src')
+            || kids.find((n) => n.kind === 'dir' && n.name[0] !== '.' && n.name !== 'node_modules');
+          if (firstDir) {
+            S.tree[firstDir.path] = await api.listDir(firstDir.path, S.treeAll);
+            S.expanded.add(firstDir.path);
+            const sub = (S.tree[firstDir.path] || []).find((n) => n.kind === 'dir' && n.name[0] !== '.');
+            if (sub) {
+              S.tree[sub.path] = await api.listDir(sub.path, S.treeAll);
+              S.expanded.add(sub.path);
+            }
+          }
+        } catch (_) { /* demo path is fake; a missing folder just stays closed */ }
+      }
+      renderRail();
+    });
+  }
+  S.railTab = 'library';
+  // library:<abs path> / mcp:<abs path> — open that folder first, so shots can
+  // show project-scoped state (coverage pills need a project's masters).
+  const withFolder = step && isAbsolute(step) && (what === 'library' || what === 'mcp') ? openFolder(step) : Promise.resolve();
+  withFolder.then(() => loadLibrary(true)).then(() => {
+    renderRail();
+    if (what === 'library') return;
+    if (what === 'mcp') return step === 'own' ? openConnectOwn() : openConnect();
+    // create:agent / create:skill — the one-screen sheet ("agent" alone is the
+    // agent identity sheet above, so the create scene needs its own name)
+    if (what === 'create') return openCreate(step === 'agent' ? 'agent' : 'skill');
+    if (what !== 'agent' && what !== 'skill') return;
+    openCreate(what); // one screen for both — the step argument died with the steps
+  });
+}
+
+// ===========================================================================
+//  The menu bar, from this side
+// ===========================================================================
+// Windows has no menu bar to look in: the window has no title bar, so it has no
+// menu either. Almost everything up there already has a button or a row in the
+// app; the few items that do not (zoom, full screen, Terms, the developer
+// tools — src/main/app-menu.js keeps the list) open from the Nami mark, which is
+// where a Windows window has always kept its menu. The menu is main's and
+// native, so its roles are the real ones. On a Mac the mark stays a picture.
+//
+// The two styles are set here rather than in paper.css because they are not a
+// look: the topbar is a drag strip, and a drag strip swallows clicks.
+function wireBrandMenu() {
+  if (api.platform !== 'win32' || !api.menuExtras) return;
+  const mark = q('.brand-mark');
+  if (!mark) return;
+  mark.setAttribute('role', 'button'); mark.tabIndex = 0; mark.title = 'Menu';
+  mark.style.webkitAppRegion = 'no-drag'; mark.style.cursor = 'pointer';
+  const open = () => { const r = mark.getBoundingClientRect(); api.menuExtras({ x: r.left, y: r.bottom + 4 }); };
+  mark.onclick = open;
+  mark.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+}
+
+// Every Nami item in the application menu arrives here as a string. The rule
+// this file keeps is that a menu item never has its own implementation: it
+// calls the same function the keyboard or the button already called, so there
+// is one behaviour per command and the menu only adds a label to it.
+//
+// Which is also why ⌘W is in here at all. A menu accelerator outranks a
+// renderer keydown, so the moment File carries ⌘W the keydown below stops
+// firing for it. Routing it to closeActive() is what keeps the key meaning
+// close *pane* instead of Close Window, which is what the conventional menu
+// item would have made it.
+function runMenuCommand(cmd) {
+  const [what, ...rest] = String(cmd || '').split(':');
+  const arg = rest.join(':'); // an argument can be a path, and paths carry colons' worth of slashes
+  if (what === 'about') return openSettings('about');
+  if (what === 'settings') return openSettings(arg || 'voice');
+  if (what === 'update-check') {
+    openSettings('about');
+    // The pane's own button, pressed. Checking has one implementation and it
+    // lives in wireAboutPane, including the part where asking by hand
+    // un-dismisses a version that was waved away.
+    const act = q('#ab-act');
+    if (act) act.click();
+    return undefined;
+  }
+  if (what === 'new-session') return openLauncher();
+  if (what === 'open-folder') return openFolderDialog();
+  if (what === 'open-recent') return arg ? openFolder(arg) : undefined;
+  if (what === 'new-file' || what === 'new-folder') {
+    if (!S.project) { toast('Open a folder first.'); return openFolderDialog(); }
+    S.railTab = 'workspace'; renderRail();
+    return openFsName(what === 'new-file' ? 'file' : 'folder', S.project.path);
+  }
+  if (what === 'save') { if (!saveActive()) toast('Nothing here to save.'); return undefined; }
+  if (what === 'reveal') {
+    const p = activeFilePanel();
+    if (!p) { toast('Open a file first.'); return undefined; }
+    return api.revealFile(p.filePath);
+  }
+  if (what === 'close-pane') return closeActive();
+  if (what === 'dictate') {
+    const p = S.panels.find((x) => x.id === S.activeId);
+    if (!p) { toast('Start a session first.'); return undefined; }
+    return toggleMic(p);
+  }
+  if (what === 'rail') {
+    if (arg === 'toggle') { S.railCollapsed = !S.railCollapsed; return applyChrome(); }
+    S.railTab = arg;
+    if (arg === 'library') loadLibrary(true);
+    return renderRail();
+  }
+  if (what === 'theme') return setTheme(arg);
+  if (what === 'agents') return openAgentPicker();
+  return undefined;
+}
+
+// Both of these were written inline in onGlobalKey. They are functions now
+// because the menu has to run the same code, and a second copy of "what does
+// ⌘W mean" is exactly how the two would drift apart.
+function closeActive() {
+  if (S.overlay && S.overlay.type === 'peek') requestClosePeek();
+  else if (S.activeId) closePanel(S.activeId);
+}
+// Returns whether it saved anything, because the keydown only swallows ⌘S when
+// there was something to save.
+function saveActive() {
+  const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (pk && pk.kind === 'editor') { saveEditor(pk); return true; }
+  if (pk && pk.kind === 'card') { saveCard(pk); return true; }
+  const p = S.panels.find((x) => x.id === S.activeId);
+  if (p && p.kind === 'editor') { saveEditor(p); return true; }
+  if (p && p.kind === 'card') { saveCard(p); return true; }
+  return false;
+}
+// A peek wins over the tile behind it, same as saving does: it is what you are
+// looking at.
+function activeFilePanel() {
+  const pk = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (pk && pk.filePath) return pk;
+  const p = S.panels.find((x) => x.id === S.activeId);
+  return p && p.filePath ? p : null;
+}
+
+// ===========================================================================
+//  Static shell
+// ===========================================================================
+function buildShell() {
+  document.getElementById('root').innerHTML = `
+    <div class="desk"><div class="sheet">
+      <div class="lights-deck" aria-hidden="true"></div>
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="brand">
+            <span class="brand-mark">
+              <img src="./assets/bond-logo.png" class="bond-mascot" alt="Bond" />
+              <span class="brand-stack">
+                <span class="brand-name">Bond</span>
+                <span class="brand-ver" id="brand-ver"></span>
+              </span>
+            </span>
+            <span class="brand-sub">Autonomous Command Hub</span>
+          </div>
+          <div class="topbar-center" id="topbar-center"></div>
+        </div>
+        <div class="topbar-center-view">
+          <div class="live-badge" id="live-badge" style="display:none"><span class="dot"></span><span id="live-label"></span></div>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-sidebar-toggle" id="btn-rail-toggle" title="Toggle Slidebar (Ctrl+B)">
+            <svg class="help-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
+            <span class="btn-toggle-label">Slidebar</span>
+          </button>
+        </div>
+      </div>
+      <div class="split">
+        <div class="rail" id="rail">
+          <button class="rail-strip" id="rail-strip" title="Show slidebar">‹</button>
+          <div class="rail-deck">
+            <div class="rail-deck-header">
+              <div class="rail-deck-badge">
+                <span class="rail-deck-dot"></span>
+                <span class="rail-deck-title">COMMAND DECK</span>
+              </div>
+              <button class="rail-collapse" id="rail-collapse" title="Collapse slidebar (Ctrl+B)">
+                <span class="rail-collapse-text">Hide</span>
+                <span class="rail-collapse-ico">›</span>
+              </button>
+            </div>
+            <div class="rail-deck-actions">
+              <button class="btn btn--go btn-dispatch" id="btn-new" title="Dispatch new agent session ${kbd('new-session')}">${helpIcon('zap')} Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
+              <button class="btn btn-fleet" id="btn-agents" title="Browse Agent Models & Harnesses ${kbd('agents')}">${helpIcon('bot')} Fleet Models<span class="kb"> ${kbd('agents')}</span></button>
+            </div>
+            <div class="rail-deck-view">
+              <div class="viewsw" id="viewsw" role="group" aria-label="Workspace view" title="Overview: full multi-agent layout grid. Dual-Pane: side-by-side session and code editor.">
+                <button class="view-choice" data-view="desk">${helpIcon('grid')} Overview</button>
+                <button class="view-choice" data-view="split">${helpIcon('split')} Dual-Pane</button>
+              </div>
+            </div>
+            <div class="rail-deck-utils">
+              <div class="theme-zone" id="theme-zone"><button class="btn btn-ctrl btn-theme-toggle" id="btn-theme" title="Switch Theme">${helpIcon('mode')} Appearance</button></div>
+              <button class="btn btn-ctrl btn-set" id="btn-settings" title="Settings ${kbd('settings')}">${helpIcon('gear')} Settings</button>
+              <button class="btn btn-ctrl btn-help" id="btn-help" title="Quick start guide">${helpIcon('guide')} Guide</button>
+            </div>
+          </div>
+          <div class="rail-tabs">
+            <button class="rail-tab active" data-tab="sessions"><span class="rail-tab-ico">⚡</span>Active Fleet</button>
+            <button class="rail-tab" data-tab="workspace"><span class="rail-tab-ico">📁</span>Explorer</button>
+            <button class="rail-tab" data-tab="library"><span class="rail-tab-ico">🧩</span>Extensions</button>
+          </div>
+          <div id="rail-content"></div>
+        </div>
+        <div class="main">
+          <div class="grid" id="grid"></div>
+          <div id="update-root"></div>
+          <div class="footer">
+            <span class="footer-dir" id="footer-path"></span>
+            <div class="footer-pills">
+              <span>${kbd('new-session')} dispatch</span><span>${kbd('agents')} fleet</span><span>${kbd('open-folder')} workspace</span>
+              <span>${kbd('close-pane')} close pane</span><span>${kbd('save')} save</span>
+            </div>
+            <button class="btn btn--small footer-shortcuts" id="btn-shortcuts">${helpIcon('keyboard')} Keymap</button>
+          </div>
+        </div>
+      </div>
+      <div id="overlay-root"></div><div id="toast-root"></div>
+    </div></div>`;
+
+  els = {
+    topbarCenter: q('#topbar-center'), liveBadge: q('#live-badge'), liveLabel: q('#live-label'),
+    railContent: q('#rail-content'), grid: q('#grid'),
+    footerPath: q('#footer-path'), overlayRoot: q('#overlay-root'), toastRoot: q('#toast-root'),
+    updateRoot: q('#update-root'),
+  };
+  q('#btn-new').onclick = () => openLauncher();
+  q('#btn-agents').onclick = () => openAgentPicker();
+  document.querySelectorAll('#viewsw .view-choice').forEach((b) => { b.onclick = () => setView(b.dataset.view); });
+  q('#btn-help').onclick = () => openQuickStart();
+  q('#btn-shortcuts').onclick = () => openSettings('shortcuts');
+  q('#btn-theme').onclick = (e) => { e.stopPropagation(); toggleThemePop(); };
+  q('#btn-settings').onclick = () => openSettings();
+  wireBrandMenu();
+  document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => { t.onclick = () => { S.railTab = t.dataset.tab; if (t.dataset.tab === 'library') loadLibrary(true); renderRail(); }; });
+  q('#rail-collapse').onclick = () => { S.railCollapsed = true; S.railPeek = false; applyChrome(); };
+  q('#rail-strip').onclick = () => { S.railCollapsed = false; S.railPeek = true; applyChrome(); };
+  const railToggle = q('#btn-rail-toggle');
+  if (railToggle) {
+    railToggle.onclick = () => {
+      S.railCollapsed = !S.railCollapsed;
+      S.railPeek = false;
+      applyChrome();
+    };
+  }
+  document.addEventListener('keydown', onGlobalKey);
+  // Capture Escape before a terminal treats it as an agent command.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && terminalHint.hide()) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('pointerdown', () => terminalHint.hide(), true);
+  document.addEventListener('scroll', () => terminalHint.hide(), true);
+  document.addEventListener('wheel', () => terminalHint.hide(), { capture: true, passive: true });
+  window.addEventListener('blur', () => terminalHint.hide());
+  window.addEventListener('resize', () => terminalHint.hide());
+  initGlassTilt();
+
+  // The desk relays its own tracks. Cheap — it only re-renders when the count
+  // actually changes, which is a handful of times across a whole window drag.
+  syncDeskColumns();
+  window.addEventListener('resize', () => { syncDeskColumns(); positionThemePop(); });
+
+  // A folder changed on disk — usually because a session just wrote to it.
+  if (api.onDirChanged) api.onDirChanged(({ dir, files }) => onDirChanged(dir, files));
+  // Safety net for what the watchers cannot catch: network volumes, FSEvents
+  // gaps. Costs one pass at the exact moment you have come back to look at it.
+  window.addEventListener('focus', () => {
+    if (!S.project || S.treeEdit) return;
+    for (const dir of [S.project.path, ...S.expanded]) if (dir in S.tree) onDirChanged(dir, []);
+    // Once, not once per folder: the open files are one list, and re-reading
+    // each of them for every expanded folder would turn a window focus into
+    // dozens of reads of the same file.
+    void followFileChanges(null);
+  });
+
+  // OS file drops: never let Electron navigate away on a stray drop.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+  // Dropping on empty canvas opens the file as a viewer/editor tile
+  // (tile drops stopPropagation, so this only fires outside tiles).
+  // A folder is refused here rather than accepted and ignored: there is no
+  // folder viewer tile, so the cursor should never promise one.
+  //
+  // The refusal has to be said out loud — `dropEffect = 'none'` — and cannot be
+  // left to withholding preventDefault. The window listener directly above sits
+  // further up the same bubble path and prevents the default on every dragover
+  // in the document, so by the time the event is done the drop is allowed no
+  // matter what this handler declines to do. Staying silent would leave the
+  // browser showing the copy it infers from effectAllowed, over a drop that
+  // then does nothing — the exact thing this whole change exists to delete.
+  els.grid.addEventListener('dragover', (e) => {
+    if (isPathDrag(e)) {
+      if (isDirDrag(e)) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; return;
+    }
+    if (isFileDrag(e)) e.preventDefault();
+  });
+  els.grid.addEventListener('drop', (e) => {
+    if (isPathDrag(e)) {
+      if (isDirDrag(e)) return;
+      const path = draggedPath(e); if (!path) return;
+      S.treeDrag = null; // openFile renders the rail out from under the row — see dropPathOnPanel
+      e.preventDefault(); openFile(path, { pin: true }); return;
+    }
+    const paths = droppedPaths(e); if (!paths.length) return;
+    e.preventDefault(); paths.forEach((f) => openFile(f, { pin: true }));
+  });
+  applyChrome();
+}
+
+// ---- glass 3D tilt ----------------------------------------------------------
+// In the glass themes, the rail's session cards tilt toward the cursor: pointer
+// position feeds the --rx/--ry vars that theme-glass.css puts into their
+// transform. One delegated listener, rAF-throttled; other themes pay nothing
+// (early return), and stale vars are inert because only [data-glass] transforms
+// read them.
+//
+// Desk tiles are deliberately excluded. They were the loudest thing on screen —
+// a document sliding under your hand while you are trying to read it — and a
+// terminal could never tilt anyway: a 3D transform makes Chromium rasterize its
+// text to a texture, which the hover lift's translateZ then stretches. A card
+// 200px wide can carry that movement; a work surface cannot. Tiles keep every
+// other hover cue, so they still answer the cursor without moving.
+function initGlassTilt() {
+  let pane = null, raf = 0, lastEvent = null;
+  const reset = (el) => { if (el) { el.style.setProperty('--rx', '0deg'); el.style.setProperty('--ry', '0deg'); } };
+  document.addEventListener('pointermove', (e) => {
+    if (!document.body.hasAttribute('data-glass')) { if (pane) { reset(pane); pane = null; } return; }
+    const hit = e.target instanceof Element ? e.target.closest('.nav-card') : null;
+    if (hit !== pane) { reset(pane); pane = hit; }
+    if (!pane) return;
+    lastEvent = e;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      if (!pane || !lastEvent) return;
+      const r = pane.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const x = (lastEvent.clientX - r.left) / r.width;
+      const y = (lastEvent.clientY - r.top) / r.height;
+      pane.style.setProperty('--rx', ((0.5 - y) * 5).toFixed(2) + 'deg');
+      pane.style.setProperty('--ry', ((x - 0.5) * 7).toFixed(2) + 'deg');
+    });
+  });
+  document.addEventListener('pointerleave', () => { reset(pane); pane = null; });
+}
+
+function applyChrome() {
+  const sheet = q('.sheet');
+  sheet.classList.toggle('rail-collapsed', S.railCollapsed);
+  sheet.classList.toggle('rail-peek', S.railPeek);
+  const railToggle = q('#btn-rail-toggle');
+  if (railToggle) {
+    railToggle.classList.toggle('active', !S.railCollapsed);
+    railToggle.title = S.railCollapsed ? 'Show Slidebar (Ctrl+B)' : 'Hide Slidebar (Ctrl+B)';
+  }
+  // tiles need a re-fit when the grid width changes
+  setTimeout(() => { syncDeskColumns(); tileEls.forEach((t) => markFit(t)); }, 60);
+}
+
+// How many tracks the desk lays. Twice what auto-fill used to choose, so a
+// default card spans two of them and measures exactly what it always did — the
+// arithmetic and its proof are in desk-grid.mjs. Anything that changes the width
+// available to the grid has to call this: the window, the rail, a zoom.
+// The memo hangs off the function rather than a module-level `let`, because
+// buildShell() calls this while the module body is still evaluating — a `let`
+// declared below is in its temporal dead zone there, and reading it threw before
+// the desk had drawn anything at all.
+function syncDeskColumns() {
+  if (!els.grid) return;
+  const cs = getComputedStyle(els.grid);
+  const inner = els.grid.clientWidth
+    - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+  const cols = deskColumns(inner);
+  if (syncDeskColumns.last === cols) return;
+  syncDeskColumns.last = cols;
+  els.grid.style.setProperty('--cols', String(cols));
+  // Spans are stored unclamped, so a narrower desk re-renders them smaller and a
+  // wider one gives them back. Only on a change, never on every resize event.
+  if (els.grid.childElementCount) renderGrid();
+}
+
+function onGlobalKey(e) {
+  const meta = e.metaKey || e.ctrlKey;
+  // Enter renames the selected row and ⌘⌫ trashes it, the way Finder does —
+  // but only when the rail is what you are looking at and nothing else has the
+  // keyboard. ⌘⌫ and not a bare ⌫ is the whole point: Delete on its own is one
+  // mis-keystroke away from destroying something while you meant to rename it.
+  // A peek does not disqualify the rail. Clicking a file both selects the row
+  // and opens its preview — that is one gesture here — and the peek never takes
+  // focus, so the selection is still what the keyboard is aimed at. Same as
+  // Quick Look: space previews, ⌘⌫ still trashes. Any other overlay is a real
+  // modal and does own the keyboard. The activeElement test stays either way:
+  // click into the peek's editor and ⌘⌫ is a text operation again.
+  const peeking = S.overlay && S.overlay.type === 'peek';
+  const inTree = S.railTab === 'workspace' && S.treeSel && !S.treeEdit
+    && !isTypingTarget(document.activeElement);
+  // Rename needs the rail actually in front of you — starting an edit hidden
+  // behind a preview would put your typing somewhere you cannot see it.
+  if (e.key === 'Enter' && !meta && inTree && !S.overlay) { e.preventDefault(); beginTreeRename(S.treeSel); return; }
+  if (meta && (e.key === 'Backspace' || e.key === 'Delete') && inTree && (!S.overlay || peeking)) {
+    e.preventDefault(); trashTreeItem(S.treeSel, dirName(S.treeSel)); return;
+  }
+  // Windows: the chords that still work with a terminal pane focused, which
+  // hands them on to here (term-keys.mjs has the rule and the list). They run
+  // what the menu runs, so there is one behaviour per command. Null on a Mac,
+  // always, so everything below reads a Mac's keys exactly as it always has —
+  // and on Windows it is still what answers a plain Ctrl+N outside a pane.
+  const chord = appChord(e, { platform: api.platform });
+  if (chord === 'new-window') { e.preventDefault(); api.newWindow(); return; }
+  if (chord === 'save') { if (saveActive()) e.preventDefault(); return; }
+  if (chord) { e.preventDefault(); runMenuCommand(chord); return; }
+  if (meta && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); S.railCollapsed = !S.railCollapsed; S.railPeek = false; applyChrome(); return; }
+  if (meta && e.shiftKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); api.newWindow(); return; }
+  if (meta && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); openLauncher(); return; }
+  if (meta && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); openFolderDialog(); return; }
+  if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openAgentPicker(); return; }
+  if (meta && e.key === ',') { e.preventDefault(); openSettings(); return; }
+  // ⌘W and ⌘S are also menu items now, and a menu accelerator fires instead of
+  // this handler rather than as well as it. Both paths call the same function,
+  // so which one the keystroke takes cannot change what it does.
+  if (meta && (e.key === 'w' || e.key === 'W')) { e.preventDefault(); closeActive(); return; }
+  if (meta && (e.key === 's' || e.key === 'S')) { if (saveActive()) e.preventDefault(); return; }
+  if (e.key === 'Escape') { if (S.overlay && S.overlay.type === 'peek') { requestClosePeek(); } else if (S.overlay) { closeOverlay(); } else if (S.expandedId) { S.expandedId = null; renderGrid(); } }
+}
+
+// ===========================================================================
+//  Render regions
+// ===========================================================================
+function renderAll() { renderHeader(); renderRail(); renderGrid(); renderFooter(); renderOverlay(); applyChrome(); }
+
+function renderHeader() {
+  const p = S.project; els.topbarCenter.innerHTML = '';
+  const chip = document.createElement('div'); chip.className = 'project-chip';
+  chip.innerHTML = p
+    ? `<span class="folder-glyph">${treeIcon('', 'dir', true)}</span><span class="name">${esc(p.name)}</span><span class="path">${esc(p.pathShort)}</span><span class="caret">▾</span>`
+    : `<span class="folder-glyph">${treeIcon('', 'dir', false)}</span><span class="name">Select Workspace Directory</span><span class="caret">▾</span>`;
+  chip.onclick = (e) => { e.stopPropagation(); toggleProjectsPop(); };
+  els.topbarCenter.appendChild(chip);
+  // An errand whose command has landed is not a live session — its shell is
+  // still open, but nothing is running in it and counting it makes the badge
+  // say two sessions are working when one of them is a finished install.
+  const live = S.panels.filter((x) => x.status === 'live' && isSessionPanel(x)
+    && !(x.oneShot && x.commandDone)).length;
+  const attn = S.panels.filter((x) => x.attention).length;
+  if (live > 0) { els.liveBadge.style.display = ''; els.liveLabel.textContent = attn ? `${attn} alerts` : `${live} active`; els.liveBadge.classList.toggle('attn', attn > 0); }
+  else els.liveBadge.style.display = 'none';
+}
+function projectRowHtml(r) {
+  if (r.missing) {
+    return `<button class="project-row dead" data-path="${esc(r.path)}" title="${esc(r.path)}">
+      <span class="folder-glyph">${treeIcon('', 'dir', false)}</span>
+      <span class="col"><span class="name">${esc(r.name)}</span><span class="summary">moved or deleted — locate…</span></span>
+      <span class="mark row-forget" title="Remove from Recents">✕</span></button>`;
+  }
+  return `<button class="project-row" data-path="${esc(r.path)}" title="${esc(r.path)}">
+    <span class="mark row-pin${r.pinned ? ' on' : ''}" title="${r.pinned ? 'Unpin' : 'Pin to the top'}">${r.pinned ? '●' : '○'}</span>
+    <span class="folder-glyph">${treeIcon('', 'dir', false)}</span>
+    <span class="col"><span class="name">${esc(r.name)}</span><span class="summary">${esc(r.pathShort)}</span></span>
+    <span class="row-age">${esc(shortAge(r.at))}</span>
+    <span class="mark row-newwin" title="Open in a new window">⧉</span>
+    <span class="mark row-forget" title="Remove from Recents">✕</span></button>`;
+}
+
+function toggleProjectsPop() {
+  const ex = q('.projects-pop'); if (ex) { ex.remove(); return; }
+  const pop = document.createElement('div'); pop.className = 'projects-pop';
+  // Pinned folders are the ones you live in, so they get their own group above
+  // the churn — a stray peek at ~/Downloads can never push them down.
+  const all = S.recents || [];
+  const pinned = all.filter((r) => r.pinned);
+  const rest = all.filter((r) => !r.pinned);
+  const group = (label, rows) => rows.length ? `<div class="pop-label">${label}</div>${rows.map(projectRowHtml).join('')}` : '';
+  const body = pinned.length
+    ? group('Pinned', pinned) + group('Recent', rest)
+    : group('Recent folders', rest);
+  pop.innerHTML = `${body || '<div class="rail-empty">No recent folders yet.</div>'}
+    <button class="project-open-other" id="open-other"><span class="plus">＋</span><span>Open another folder…</span><span class="kbd">${kbd('open-folder')}</span></button>
+    <button class="project-open-other" id="open-newwin"><span class="plus">⧉</span><span>New window</span><span class="kbd">${kbd('new-window')}</span></button>`;
+  // fixed + measured + parked on body, not absolute-in-topbar: the topbar clips
+  // its descendants (overflow backstop for ⌘+ zoom), and renderHeader() rebuilds
+  // topbar-center's innerHTML, which would silently eat the pop.
+  const anchor = els.topbarCenter.getBoundingClientRect();
+  pop.style.left = (anchor.left + anchor.width / 2) + 'px';
+  pop.style.top = (anchor.top + 46) + 'px';
+  document.body.appendChild(pop);
+  const reopen = () => { const p = q('.projects-pop'); if (p) p.remove(); toggleProjectsPop(); };
+  pop.querySelectorAll('.project-row').forEach((row) => {
+    const path = row.dataset.path;
+    const dead = row.classList.contains('dead');
+    // A dead row offers the only useful thing left: point at where it went.
+    row.onclick = async () => { pop.remove(); if (dead) openFolderDialog(); else await openFolder(path); };
+    const pin = q('.row-pin', row);
+    if (pin) pin.onclick = async (e) => {
+      e.stopPropagation();
+      S.recents = await api.recentsPin(path, !row.querySelector('.row-pin').classList.contains('on'));
+      reopen();
+    };
+    const win = q('.row-newwin', row);
+    if (win) win.onclick = (e) => { e.stopPropagation(); pop.remove(); api.newWindow(path); };
+    q('.row-forget', row).onclick = async (e) => {
+      e.stopPropagation();
+      S.recents = await api.recentsRemove(path);
+      reopen();
+    };
+  });
+  q('#open-other', pop).onclick = () => { pop.remove(); openFolderDialog(); };
+  q('#open-newwin', pop).onclick = () => { pop.remove(); api.newWindow(); };
+  // The reopen path rebuilds the pop inside a click, so arm the dismiss listener
+  // on the next tick or it fires on the very click that opened this one.
+  setTimeout(() => document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }, { once: true }), 0);
+}
+
+// ---- theme popover (◐ in the topbar) ---------------------------------------
+const THEME_OPTIONS = [
+  { id: 'operator', name: 'operator', desc: 'dark ops' },
+];
+function positionThemePop() {
+  const pop = q('.theme-pop'), zone = q('#theme-zone');
+  if (!pop || !zone) return;
+  const anchor = zone.getBoundingClientRect();
+  const right = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, window.innerWidth - anchor.right));
+  pop.style.right = right + 'px';
+  pop.style.top = (anchor.bottom + 8) + 'px';
+  pop.style.maxHeight = Math.max(80, window.innerHeight - anchor.bottom - 16) + 'px';
+  pop.style.overflowY = 'auto';
+}
+function toggleThemePop() {
+  const zone = q('#theme-zone');
+  const ex = q('.theme-pop'); if (ex) { ex.remove(); return; }
+  const pop = document.createElement('div'); pop.className = 'theme-pop';
+  pop.innerHTML = `<div class="pop-label">Appearance</div>` + THEME_OPTIONS.map((t) =>
+    `<button class="theme-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}" aria-pressed="${currentTheme() === t.id}">
+      <span class="theme-dot"></span><span class="theme-name">${t.name}</span><span class="theme-desc">${t.desc}</span></button>`).join('');
+  pop.onclick = (e) => e.stopPropagation();
+  // fixed + measured + parked on body — same clipping story as the projects pop
+  document.body.appendChild(pop);
+  positionThemePop();
+  pop.querySelectorAll('.theme-opt').forEach((b) => {
+    b.onclick = () => {
+      setTheme(b.dataset.themeId);
+      pop.querySelectorAll('.theme-opt').forEach((o) => {
+        const picked = o.dataset.themeId === currentTheme();
+        o.classList.toggle('picked', picked); o.setAttribute('aria-pressed', String(picked));
+      });
+    };
+  });
+  setTimeout(() => document.addEventListener('click', function off() { pop.remove(); document.removeEventListener('click', off); }, { once: true }), 0);
+}
+
+function renderRail() { document.querySelectorAll('.rail-tab[data-tab]').forEach((t) => t.classList.toggle('active', t.dataset.tab === S.railTab)); refreshRail(); }
+// Rebuilds wipe the tab's scroller, so its position is saved and put back.
+const RAIL_SCROLLER = { sessions: '.rail-list', workspace: '.tree', library: '.lib-list' };
+const railScroll = {};
+function refreshRail() {
+  const c = els.railContent;
+  const sel = RAIL_SCROLLER[S.railTab];
+  const prev = q(sel, c); if (prev) railScroll[S.railTab] = prev.scrollTop;
+  c.innerHTML = '';
+  if (S.railTab === 'sessions') refreshSessionsRail(c);
+  else if (S.railTab === 'library') refreshLibraryRail(c);
+  else refreshWorkspaceRail(c);
+  const next = q(sel, c); if (next && railScroll[S.railTab]) next.scrollTop = railScroll[S.railTab];
+}
+function refreshSessionsRail(c) {
+  const head = document.createElement('div'); head.className = 'rail-head';
+  head.innerHTML = `<span class="title">Active Fleet</span>${S.panels.length ? '<span class="action" id="clear-all">clear finished</span>' : ''}`;
+  c.appendChild(head);
+  const cl = q('#clear-all', head); if (cl) cl.onclick = closeFinished;
+  if (!S.panels.length) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'No running agent tasks. Dispatch an agent (' + kbd('new-session') + ') to begin.'; c.appendChild(e); return; }
+  // Sessions first, each with the files that joined it folded under it; files
+  // with no live session last, under "Desk" (desk-view.mjs). In split the
+  // highlight follows the two panes, on the desk the card you last clicked.
+  const list = document.createElement('div'); list.className = 'rail-list';
+  const split = S.view === 'split';
+  const shownFile = split ? S.split.fileId : null;
+  const isActive = (p) => (split ? p.id === S.split.sessionId || p.id === shownFile : p.id === S.activeId);
+  const fileRow = (f) => {
+    const m = statusMeta(f);
+    const row = document.createElement('div');
+    row.className = 'nav-file' + (isActive(f) ? ' sel' : '') + (f.preview ? ' preview' : '');
+    row.dataset.id = f.id; row.draggable = true; row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-pressed', String(isActive(f)));
+    row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanel(f.id); } };
+    row.innerHTML = `${panelChip(f)}<span class="name goal" title="${esc(f.title)}">${esc(f.title)}</span><span class="status" style="color:${m.color}">${esc(m.label)}</span>`;
+    row.onclick = () => focusPanel(f.id);
+    row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(f)); };
+    // drag a file row onto a session row (or the Desk heading) to move it
+    row.ondragstart = (e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData(PANEL_TYPE, f.id); e.dataTransfer.setData('text/plain', f.id); } catch (_) {} row.classList.add('dragging'); };
+    row.ondragend = () => row.classList.remove('dragging');
+    return row;
+  };
+  const dropTarget = (el, ownerId) => {
+    el.addEventListener('dragover', (e) => { if (!Array.from(e.dataTransfer.types).includes(PANEL_TYPE)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-into'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-into'));
+    el.addEventListener('drop', (e) => { el.classList.remove('drop-into'); const id = e.dataTransfer.getData(PANEL_TYPE); if (!id) return; e.preventDefault(); e.stopPropagation(); const f = S.panels.find((x) => x.id === id); if (f && isFilePanel(f)) moveFileTo(f, ownerId); });
+  };
+  const g = groupRail(S.panels);
+  for (const { session: p, files } of g.sessions) {
+    const m = statusMeta(p);
+    const folded = S.railFold.has(p.id);
+    const row = document.createElement('div');
+    row.className = 'nav-card' + (isActive(p) ? ' active' : '') + (p.attention ? ' attn' : '');
+    row.dataset.id = p.id;
+    const count = files.length ? `<button type="button" class="count" aria-expanded="${!folded}" title="${folded ? 'Show files' : 'Hide files'}"><span class="tw">${folded ? '▸' : '▾'}</span>${files.length} ${files.length === 1 ? 'file' : 'files'}</button>` : '';
+    row.innerHTML = `${panelChip(p)}
+      <span class="col"><span class="goal" title="${esc(p.title)} — double-click to rename">${esc(p.title)}</span><span class="sid">${esc(kindLabel(p))}</span></span>
+      <span class="nav-meta"><span class="status" style="color:${m.color}">${p.attention ? '● ' : ''}${esc(m.label)}</span>${count}</span>`;
+    row.onclick = () => focusPanel(p.id);
+    q('.goal', row).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.goal', row)); });
+    const cnt = q('.count', row);
+    if (cnt) cnt.onclick = (e) => { e.stopPropagation(); if (folded) S.railFold.delete(p.id); else S.railFold.add(p.id); refreshRail(); q(`.nav-card[data-id="${p.id}"] .count`)?.focus({ preventScroll: true }); };
+    dropTarget(row, p.id);
+    list.appendChild(row);
+    if (files.length && !folded) {
+      const grp = document.createElement('div'); grp.className = 'nav-files';
+      for (const f of files) grp.appendChild(fileRow(f));
+      list.appendChild(grp);
+    }
+  }
+  if (g.desk.length) {
+    if (g.sessions.length) { const h = document.createElement('div'); h.className = 'nav-group'; h.textContent = 'Desk'; dropTarget(h, null); list.appendChild(h); }
+    const grp = document.createElement('div'); grp.className = 'nav-files nav-files--desk';
+    for (const f of g.desk) grp.appendChild(fileRow(f));
+    list.appendChild(grp);
+  }
+  c.appendChild(list);
+}
+function refreshWorkspaceRail(c) {
+  const p = S.project;
+  const wrap = document.createElement('div'); wrap.className = 'tree';
+  if (!p) { wrap.innerHTML = '<div class="rail-empty">Open a folder (' + kbd('open-folder') + ') to browse and edit files.</div>'; c.appendChild(wrap); return; }
+  const head = document.createElement('div'); head.className = 'tree-path';
+  const pathSpan = document.createElement('span'); pathSpan.className = 'path'; pathSpan.textContent = p.pathShort;
+  const toggle = document.createElement('span'); toggle.className = 'action';
+  toggle.textContent = S.treeAll ? 'essentials' : 'show all';
+  toggle.title = S.treeAll ? 'Hide build output, dotfiles and node_modules' : 'Show every file, including hidden and ignored ones';
+  toggle.onclick = () => {
+    S.treeAll = !S.treeAll;
+    localStorage.setItem('bond-tree-all', S.treeAll ? '1' : '0');
+    S.tree = {};
+    api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; refreshRail(); });
+  };
+  // Creating a file has always worked — it was just right-click-only, which for
+  // most people means it did not exist. Same menu the header's context menu
+  // opens, on something you can see. Both glyphs, because glass and graphite
+  // swap every chrome mark for its pixel twin.
+  const plus = document.createElement('span');
+  plus.className = 'tree-new'; plus.title = 'New file or folder';
+  plus.setAttribute('role', 'button'); plus.tabIndex = 0;
+  plus.innerHTML = `<span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span>`;
+  const openNewMenu = (x, y) => showMenu(x, y, [
+    { label: 'New file…', run: () => openFsName('file', newTargetDir()) },
+    { label: 'New folder…', run: () => openFsName('folder', newTargetDir()) },
+  ]);
+  plus.onclick = (e) => { e.stopPropagation(); const r = plus.getBoundingClientRect(); openNewMenu(r.left, r.bottom + 4); };
+  plus.onkeydown = (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); const r = plus.getBoundingClientRect(); openNewMenu(r.left, r.bottom + 4);
+  };
+  head.appendChild(pathSpan); head.appendChild(plus); head.appendChild(toggle); wrap.appendChild(head);
+  head.oncontextmenu = (e) => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      { label: W.reveal, run: () => api.revealFile(p.path) },
+      { label: 'New file…', run: () => openFsName('file', p.path) },
+      { label: 'New folder…', run: () => openFsName('folder', p.path) },
+    ]);
+  };
+  // the header stands for the root, so a drag can be dropped on it to move
+  // something back up out of a folder
+  wireDrop(head, () => p.path);
+  // first look at this folder (e.g. right after boot): fetch the root level once
+  if (!S.tree[p.path]) api.listDir(p.path, S.treeAll).then((rows) => { S.tree[p.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
+  renderTreeLevel(wrap, p.path, 0);
+  c.appendChild(wrap);
+}
+
+// Where the ＋ creates: the folder you have selected, the folder of the file you
+// have selected, or the root.
+function newTargetDir() {
+  const root = S.project.path;
+  const sel = S.treeSel;
+  if (!sel) return root;
+  for (const [dir, rows] of Object.entries(S.tree)) {
+    for (const n of rows || []) if (n.path === sel) return n.kind === 'dir' ? n.path : dir;
+  }
+  return root;
+}
+function renderTreeLevel(container, dir, depth) {
+  const children = S.tree[dir];
+  if (!children) return;
+  for (const n of children) {
+    const row = document.createElement('div'); row.className = 'tree-row';
+    if (n.path === S.treeSel) row.classList.add('sel');
+    if (S.treeFresh.has(n.path)) row.classList.add('landed');
+    row.style.paddingLeft = (6 + depth * 13) + 'px';
+    row.style.setProperty('--d', String(depth));
+    row.dataset.path = n.path; row.dataset.kind = n.kind; row.dataset.dir = dir;
+    const isOpen = S.expanded.has(n.path);
+    const glyph = n.kind === 'dir' ? (isOpen ? '▾' : '▸') : '';
+    if (S.treeEdit && S.treeEdit.path === n.path) { renderRenameRow(row, n, dir, glyph, isOpen); container.appendChild(row); continue; }
+    row.draggable = true;
+    row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>
+      <span class="name" style="font-weight:${n.kind === 'dir' ? 700 : 400}">${esc(n.name)}</span><span class="meta">${esc(n.meta)}</span>`;
+    // On the desk a click peeks; in split it opens the file into the session
+    // on the left and keeps it there — every file you open stays.
+    row.onclick = () => { S.treeSel = n.path; if (n.kind === 'dir') toggleDir(n.path); else { openFile(n.path, S.view === 'split' ? { pin: true } : undefined); refreshRail(); } };
+    row.oncontextmenu = (e) => { e.preventDefault(); S.treeSel = n.path; showMenu(e.clientX, e.clientY, treeMenu(n, dir)); };
+    row.ondragstart = (e) => {
+      S.treeDrag = n.path;
+      row.classList.add('dragging');
+      // copyMove, not move. This is not about the cursor picture: a dropEffect
+      // outside effectAllowed is not merely ignored, it cancels the drop
+      // outright (Blink drag_controller: operation becomes kNone). With 'move'
+      // alone, the tile asking for 'copy' below would have killed its own drop.
+      // Folder targets are unaffected — wireDrop names dropEffect = 'move'
+      // itself, which is still a member.
+      e.dataTransfer.effectAllowed = 'copyMove';
+      try {
+        e.dataTransfer.setData('text/plain', n.path);
+        e.dataTransfer.setData(PATH_TYPE, n.path);
+        if (n.kind === 'dir') e.dataTransfer.setData(DIR_TYPE, n.path);
+      } catch (_) {}
+    };
+    row.ondragend = () => { S.treeDrag = null; row.classList.remove('dragging'); clearDropMarks(); };
+    // A file row stands for the folder that holds it — the same near-miss
+    // forgiveness Finder gives you.
+    wireDrop(row, () => (n.kind === 'dir' ? n.path : dir));
+    container.appendChild(row);
+    if (n.kind === 'dir' && isOpen) renderTreeLevel(container, n.path, depth + 1);
+  }
+}
+async function toggleDir(dir) {
+  if (S.expanded.has(dir)) { S.expanded.delete(dir); refreshRail(); return; }
+  if (!S.tree[dir]) S.tree[dir] = await api.listDir(dir, S.treeAll);
+  S.expanded.add(dir); refreshRail();
+}
+
+// ---- rename in place --------------------------------------------------------
+function beginTreeRename(path) { S.treeEdit = { path }; refreshRail(); }
+function renderRenameRow(row, n, dir, glyph, isOpen) {
+  row.classList.add('editing');
+  row.innerHTML = `<span class="tw">${glyph}</span><span class="icon">${treeIcon(n.name, n.kind, isOpen)}</span>`;
+  const input = document.createElement('input');
+  input.className = 'tree-rename'; input.value = n.name; input.spellcheck = false;
+  row.appendChild(input);
+  let done = false;
+  const finish = async () => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    S.treeEdit = null;
+    if (!name || name === n.name) { refreshRail(); return; }
+    const res = await api.fsRename({ root: S.project.path, src: n.path, name });
+    if (!res.ok) { toast(res.error || 'Could not rename'); refreshRail(); return; }
+    // the expanded set is keyed on paths, so a renamed folder has to carry its
+    // open state across or it silently collapses under you
+    if (S.expanded.has(n.path)) { S.expanded.delete(n.path); S.expanded.add(res.path); }
+    delete S.tree[n.path];
+    S.treeSel = res.path;
+    await refreshTreeDir(dir);
+  };
+  setTimeout(() => {
+    input.focus();
+    const dot = n.name.lastIndexOf('.');
+    // Finder's rule: select the stem, leave the extension out of it
+    if (n.kind === 'file' && dot > 0) input.setSelectionRange(0, dot); else input.select();
+  }, 20);
+  input.onblur = finish;
+  input.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(); }
+    if (e.key === 'Escape') { e.preventDefault(); done = true; S.treeEdit = null; refreshRail(); }
+  };
+}
+
+// ---- drag: move within the tree, import from outside it ---------------------
+function clearDropMarks() { document.querySelectorAll('.tree-row.drop-into, .tree-path.drop-into').forEach((el) => el.classList.remove('drop-into')); }
+let dropHoverTimer = null, dropHoverPath = null;
+function cancelHoverExpand() { if (dropHoverTimer) clearTimeout(dropHoverTimer); dropHoverTimer = null; dropHoverPath = null; }
+
+function wireDrop(el, destFn) {
+  el.ondragover = (e) => {
+    const dest = destFn();
+    // refuse a folder into itself or below itself before the cursor suggests it
+    if (S.treeDrag && isUnder(S.treeDrag, dest)) { clearDropMarks(); cancelHoverExpand(); return; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = S.treeDrag ? 'move' : 'copy';
+    clearDropMarks(); el.classList.add('drop-into');
+    // hold over a closed folder and it opens, so you can drag somewhere you
+    // have not looked yet
+    if (el.dataset && el.dataset.kind === 'dir' && !S.expanded.has(dest)) {
+      if (dropHoverPath !== dest) {
+        cancelHoverExpand(); dropHoverPath = dest;
+        dropHoverTimer = setTimeout(() => { toggleDir(dest); }, 600);
+      }
+    } else cancelHoverExpand();
+  };
+  el.ondragleave = () => { el.classList.remove('drop-into'); cancelHoverExpand(); };
+  el.ondrop = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    clearDropMarks(); cancelHoverExpand();
+    const dest = destFn();
+    const root = S.project.path;
+    const files = e.dataTransfer.files;
+    if (files && files.length) {
+      // from Finder. droppedFilePath, never File.path — removed in Electron 32.
+      const srcPaths = [...files].map((f) => api.droppedFilePath(f)).filter(Boolean);
+      if (!srcPaths.length) { toast('Could not read what was dropped.'); return; }
+      const res = await api.fsImport({ root, destDir: dest, srcPaths });
+      if (!res.ok) { toast(res.error || 'Could not copy that in'); return; }
+      S.expanded.add(dest);
+      markFresh(res.paths);
+      await refreshTreeDir(dest);
+      toast(res.paths.length === 1 ? 'Copied in ' + baseName(res.paths[0]) + '.' : 'Copied in ' + res.paths.length + ' items.');
+      return;
+    }
+    const src = S.treeDrag; S.treeDrag = null;
+    if (!src) return;
+    const srcDir = dirName(src);
+    if (srcDir === dest) return;
+    const res = await api.fsMove({ root, src, destDir: dest });
+    if (!res.ok) { toast(res.error); return; }
+    S.expanded.delete(src); delete S.tree[src];
+    S.expanded.add(dest); S.treeSel = res.path;
+    markFresh([res.path]);
+    await refreshTreeDir(srcDir); await refreshTreeDir(dest);
+    toast('Moved ' + baseName(src) + '.');
+  };
+}
+// dirName and baseName are paths.mjs's: the tree's names, the tile titles and
+// the move guards all read a path the way the platform writes it.
+//
+// Same rule as isDescendant in fs-actions.js. Duplicated rather than shared
+// because the renderer cannot require a CommonJS main module — and this copy is
+// only ever cosmetic, shaping the drop cursor. The guard that counts is in main.
+function isUnder(parent, child) {
+  return isInside(parent, child);
+}
+// A brief green on rows that just appeared, so a watcher-driven change is
+// something you notice rather than something you have to diff by eye.
+function markFresh(paths) {
+  for (const p of paths || []) S.treeFresh.add(p);
+  clearTimeout(markFresh.t);
+  markFresh.t = setTimeout(() => { S.treeFresh.clear(); if (S.railTab === 'workspace') refreshRail(); }, 2400);
+}
+
+// ---- workspace context menu ------------------------------------------------
+function showMenu(x, y, items) {
+  terminalHint.hide();
+  hideMenu();
+  const m = document.createElement('div'); m.className = 'ctx-menu'; m.id = 'ctx-menu';
+  for (const it of items) {
+    if (it === '-') { const hr = document.createElement('div'); hr.className = 'ctx-sep'; m.appendChild(hr); continue; }
+    const row = document.createElement('div');
+    row.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.off ? ' off' : '');
+    row.textContent = it.label;
+    // The menu is where people look for a shortcut they don't know yet, so the
+    // ones that exist say so here rather than staying folklore.
+    if (it.kb) { const k = document.createElement('span'); k.className = 'ctx-kb'; k.textContent = it.kb; row.appendChild(k); }
+    // An inert row is there to answer "why can't I open this?" — it says the
+    // reason in the shortcut column and does nothing when clicked. Removing it
+    // instead would leave the question unanswered.
+    if (it.off) row.onclick = (e) => e.stopPropagation();
+    else row.onclick = (e) => { e.stopPropagation(); hideMenu(); it.run(e); };
+    m.appendChild(row);
+  }
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  setTimeout(() => {
+    window.addEventListener('click', hideMenu, { once: true });
+    window.addEventListener('contextmenu', hideMenu, { once: true });
+    window.addEventListener('keydown', escHideMenu);
+  }, 0);
+}
+function escHideMenu(e) { if (e.key === 'Escape') hideMenu(); }
+// Every listener showMenu armed has to come back off, not just the keydown one.
+// `once` only fires-and-removes when the event actually arrives, so dismissing a
+// menu with Escape or a click left the *contextmenu* listener armed — and it
+// then bubbled into the next right-click and tore that menu down as it opened.
+// The menu opened once per session and Duplicate, Copy path and Move to Trash
+// were unreachable after it. Present since 0.1.2.
+function hideMenu() {
+  const m = document.getElementById('ctx-menu'); if (m) m.remove();
+  window.removeEventListener('keydown', escHideMenu);
+  window.removeEventListener('click', hideMenu);
+  window.removeEventListener('contextmenu', hideMenu);
+}
+async function refreshTreeDir(dir) {
+  await relistDir(dir);
+  if (S.railTab === 'workspace') refreshRail();
+}
+
+// ---- keeping the tree honest ------------------------------------------------
+// What is watched is a property of the *project*, not of what happens to be
+// drawn. It used to be called from the bottom of renderWorkspaceTree, which
+// meant a window booted on the Sessions tab watched nothing at all until you
+// clicked Workspace — and then only the folders that were open. One recursive
+// watcher on the root covers all of it; see src/main/dir-watch.js.
+function watchProject() {
+  if (!api.dirWatch) return;
+  api.dirWatch(S.project ? S.project.path : null).catch(() => {});
+}
+
+// Something changed inside `dir`. Two rows can be wrong because of it, and the
+// second is the one that used to be missed:
+//
+//   · dir's own listing, if dir is open
+//   · dir's row in its PARENT's listing, which is where its "N items" is
+//     computed — so a file appearing inside a collapsed ui/ is corrected by
+//     re-listing the folder that holds ui/, never ui/ itself
+//
+// Anything deeper than that changes no number anybody can see, and returns
+// without a readdir.
+async function onDirChanged(dir, files) {
+  // Two jobs now. The tree's is below; this one is the files themselves, and it
+  // runs first because it does not care whether the folder is open in the
+  // sidebar — a tile follows its file wherever that file lives.
+  void followFileChanges(files);
+  if (!S.project || !dir) return;
+  if (S.treeEdit && dirName(S.treeEdit.path) === dir) return;  // mid-rename; the commit re-lists
+  const parent = dir === S.project.path ? null : dirName(dir);
+  let touched = false;
+  if (dir in S.tree) touched = await relistDir(dir) || touched;
+  if (parent && parent in S.tree) touched = await relistDir(parent) || touched;
+  if (touched && S.railTab === 'workspace') refreshRail();
+}
+
+// Re-read one open folder. A null means it has gone — "empty" and "deleted" are
+// different answers and dir:list now distinguishes them, which is what lets the
+// row disappear instead of emptying out.
+async function relistDir(dir) {
+  const before = new Set((S.tree[dir] || []).map((n) => n.path));
+  const rows = await api.listDir(dir, S.treeAll);
+  if (rows == null) { delete S.tree[dir]; S.expanded.delete(dir); return true; }
+  S.tree[dir] = rows;
+  const fresh = rows.map((n) => n.path).filter((p) => !before.has(p));
+  if (fresh.length) markFresh(fresh);
+  return true;
+}
+// A file open on the desk follows the file on disk.
+//
+// The watcher names what moved; every open tile holding one of those paths
+// re-reads it and asks decideReload what to do — merge it, ask about it, or
+// leave it alone (src/renderer/file-sync.mjs holds the rules and the reasons).
+// A null `files` means the platform would not say which file it was, so every
+// open file is re-checked: a missed reload is a tile quietly lying about a
+// document, and one extra read of a file you have open costs nothing you can
+// feel. An empty list names nothing and does nothing.
+//
+// One read per panel at a time. A build writing the same file forty times in a
+// burst would otherwise stack forty reads against one tile and apply them in
+// whatever order they came back.
+const followInFlight = new Set();
+async function followFileChanges(files) {
+  const named = files == null ? null : new Set(files);
+  const open = S.panels.filter((p) => p.filePath && (p.kind === 'editor' || p.kind === 'viewer'));
+  // The peek sheet is a panel that never joined S.panels — it is the most
+  // likely thing to be looking at while an agent writes, so it follows too.
+  const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (peek && peek.filePath && !open.includes(peek)) open.push(peek);
+  for (const p of open) {
+    if (named && !named.has(p.filePath)) continue;
+    if (followInFlight.has(p.id)) continue;
+    followInFlight.add(p.id);
+    try { await followOneFile(p); } finally { followInFlight.delete(p.id); }
+  }
+}
+// The tile that shows `p` — a pinned one, or the peek sheet, which mounts the
+// same editor into a rec of its own.
+function fileRecFor(p) {
+  const rec = tileEls.get(p.id);
+  if (rec) return rec;
+  return peekRec && S.overlay && S.overlay.type === 'peek' && S.overlay.panel === p ? peekRec : null;
+}
+async function followOneFile(p) {
+  const rec = fileRecFor(p);
+  if (!rec || !rec.reloadFromDisk) return;
+  // A viewer has no buffer and nothing unsaved: there is no decision to make,
+  // only a cache to bust.
+  if (p.kind === 'viewer') { rec.reloadFromDisk(); return; }
+  const res = await api.rawFile(p.filePath);
+  // Gone, binary, or too big to read. The tile keeps what it has rather than
+  // emptying out over a failed read — the same instinct as the zero-byte rule.
+  if (!res || !res.ok || typeof res.text !== 'string') return;
+  const d = decideReload({ text: p.text || '', dirty: !!p.dirty, lastHash: p.lastHash || null, diskText: res.text });
+  // 'refuse' is silent on purpose: nothing was lost and nothing needs deciding.
+  // Telling somebody their file briefly read as empty is noise about a write
+  // that has almost certainly already finished.
+  if (d.action === 'drop' || d.action === 'refuse') return;
+  if (d.action === 'merge') { rec.reloadFromDisk(d.text); return; }
+  if (d.action === 'ask' && rec.raiseDiskBar) rec.raiseDiskBar(d.diskText);
+}
+// Which session a file lands in: the one you are working in, else the only
+// live one. Several live and none active is the one case that has to ask,
+// and it asks with a toast rather than a picker — a right-click is a quick
+// gesture, and the fix is to click the session you meant first.
+async function addPathToSession(path, isDir) {
+  const live = S.panels.filter(isSessionPanel).filter((p) => !p.exited);
+  if (!live.length) { toast('Open a session first.'); return; }
+  const active = live.find((p) => p.id === S.activeId);
+  const target = active || (live.length === 1 ? live[0] : null);
+  if (!target) { toast('Click the session you mean, then add the file.'); return; }
+  const text = pathRef(path, S.project && S.project.path, isDir);
+  const ok = await insertSessionText(target.id, text, { focus: true });
+  toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
+}
+// The same verbs from an open tab. A tile is aimed at the session that owns
+// it; one with no live owner falls back to the rule the tree uses above.
+function tileTarget(p) {
+  const owner = p.owner && S.panels.find((s) => s.id === p.owner && isSessionPanel(s) && !s.exited);
+  if (owner) return owner;
+  const live = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  if (!live.length) { toast('Open a session first.'); return null; }
+  const active = live.find((s) => s.id === S.activeId);
+  const target = active || (live.length === 1 ? live[0] : null);
+  if (!target) toast('Click the session you mean, then add the file.');
+  return target;
+}
+async function addTileToSession(p) {
+  const target = tileTarget(p); if (!target) return;
+  const text = p.filePath ? pathRef(p.filePath, S.project && S.project.path, false) : p.url + ' ';
+  const ok = await insertSessionText(target.id, text, { focus: true });
+  toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
+}
+// Leave Nami for the Mac's browser: a saved HTML file through the file
+// channel, a website through the url one. Main guards both — a .md, a
+// file:// that is not HTML, a custom scheme: none of them gets out.
+async function openOutside(p) {
+  if (p.filePath && fileKind(p.filePath) === 'html') {
+    if (p.dirty && !(await saveEditor(p))) return;
+    const r = await api.openFileInBrowser(p.filePath);
+    if (r && r.ok === false) toast(r.error || 'Could not open Chrome.');
+    return;
+  }
+  if (p.url && /^https?:\/\//i.test(p.url)) api.openUrl(p.url);
+  else toast('Nothing to open yet.');
+}
+function tileMenu(p) {
+  return tileMenuItems(p, {
+    html: (x) => !!x.filePath && fileKind(x.filePath) === 'html',
+    openOutside, addToSession: addTileToSession, move: moveMenu,
+    copy: (x) => { api.copyText(x.filePath || x.url); toast(x.filePath ? 'Path copied.' : 'Address copied.'); },
+    newWindow: (x) => api.newWindow(dirName(x.filePath), x.filePath),
+  });
+}
+function treeMenu(n, parentDir) {
+  const root = S.project.path;
+  const items = [];
+  if (n.kind === 'file' && fileKind(n.path) === 'html') {
+    items.push({ label: 'Open in browser', run: () => openFileInBrowser(n.path) });
+    items.push({ label: 'Open in Chrome ↗', run: () => openOutside({ filePath: n.path }) });
+  }
+  // The whole file, not a highlighted piece of it. Same text a drag types —
+  // an @mention inside the project, a quoted path outside — into the session
+  // you are working in. Folders go too, with their trailing slash.
+  items.push({ label: 'Add to session', run: () => addPathToSession(n.path, n.kind === 'dir') });
+  // Every window owns one folder. A folder opens as that window's root; a
+  // file opens its folder and lands the file on the new desk.
+  items.push({ label: 'Open in new window', run: () => {
+    if (n.kind === 'dir') api.newWindow(n.path);
+    else api.newWindow(parentDir || root, n.path);
+  } });
+  items.push({ label: W.reveal, run: () => api.revealFile(n.path) });
+  if (n.kind === 'dir') {
+    items.push({ label: 'New file…', run: () => openFsName('file', n.path) });
+    items.push({ label: 'New folder…', run: () => openFsName('folder', n.path) });
+  }
+  // "Move to…" is gone: it opened a native picker that would happily let you
+  // choose a folder outside the root, and then movePath refused it — offering a
+  // destination you are not allowed to use. Dragging the row does this now.
+  items.push({ label: 'Rename…', kb: '⏎', run: () => beginTreeRename(n.path) });
+  items.push({ label: 'Duplicate', run: async () => {
+    const res = await api.fsDuplicate({ root, src: n.path });
+    if (!res.ok) { toast(res.error || 'Could not duplicate'); return; }
+    markFresh([res.path]);
+    await refreshTreeDir(parentDir);
+    toast('Duplicated to ' + baseName(res.path) + '.');
+  } });
+  items.push({ label: 'Copy path', run: async () => {
+    try { await navigator.clipboard.writeText(n.path); toast('Path copied.'); }
+    catch (_) { toast('Could not copy that.'); }
+  } });
+  items.push('-');
+  // Direct to Trash: right-click plus a click below a separator is deliberate,
+  // and the Trash is recoverable. The library card's Delete keeps its armed
+  // second click because it sits next to Save.
+  items.push({ label: 'Move to ' + W.trash, danger: true, kb: kbd('trash'), run: () => trashTreeItem(n.path, parentDir) });
+  return items;
+}
+
+// Shared by the menu row and ⌘⌫, so the keyboard route cannot drift from the
+// one the menu advertises.
+async function trashTreeItem(path, parentDir) {
+  const res = await api.fsTrash({ root: S.project.path, path });
+  if (!res.ok) { toast(res.error); return; }
+  S.expanded.delete(path); delete S.tree[path];
+  if (S.treeSel === path) S.treeSel = null;
+  // Previewing the thing you just trashed is a window onto a file that is no
+  // longer there — close it rather than leave a stale page up.
+  if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel && S.overlay.panel.filePath === path) closeOverlay();
+  await refreshTreeDir(parentDir);
+  toast('Moved ' + baseName(path) + ' to ' + W.trash + '.');
+}
+function openFsName(mode, dir) { S.overlay = { type: 'fs-name', mode, dir, name: '' }; renderOverlay(); }
+function renderFsName() {
+  const o = S.overlay;
+  // Its own header, not .picker-input: that row belongs to the launcher and the
+  // agent picker too, and it has no nowrap on the label and no truncation on the
+  // trailing span — so a deep path wrapped the title onto two lines and then ran
+  // to three of its own, leaving the destination as the biggest thing in a box
+  // whose actual job is a name and a button.
+  const full = shortHome(o.dir);
+  const modal = overlay('picker-box', `
+    <div class="fs-head"><span class="prompt-mark">＋</span>
+      <span class="fs-title">New ${o.mode === 'file' ? 'file' : 'folder'}</span>
+      <span class="fs-where" title="${esc(full)}">${esc(tailPath(full))}</span></div>
+    <div class="fs-row"><input id="fs-name" placeholder="${o.mode === 'file' ? 'notes.md' : 'a name'}" spellcheck="false" />
+      <button class="btn btn--go" id="fs-go">Create</button></div>
+    <div class="fs-hint">${o.mode === 'file'
+      ? 'Any extension. It lands empty and opens in the editor.'
+      : 'The folder is created and opened in the tree.'}</div>`, { top: true });
+  const input = q('#fs-name', modal); input.value = o.name; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.name = input.value; };
+  const go = async () => {
+    const name = input.value.trim();
+    if (!name) { toast('Give it a name first.'); return; }
+    const root = S.project.path;
+    const res = o.mode === 'file'
+      ? await api.fsNewFile({ root, dir: o.dir, name })
+      : await api.fsNewFolder({ root, dir: o.dir, name });
+    if (!res.ok) { toast(res.error || 'Could not create'); return; }
+    closeOverlay();
+    if (o.dir !== root) S.expanded.add(o.dir);
+    await refreshTreeDir(o.dir);
+    if (o.mode === 'file') openFile(res.path, { pin: true });
+    toast('Created ' + name);
+  };
+  q('#fs-go', modal).onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+}
+
+// ---- library rail (agents & skills across platforms) -----------------------
+async function loadLibrary(force) {
+  if (S.library.loading || (S.library.loaded && !force)) return;
+  S.library.loading = true;
+  const keepMac = S.library.macLoaded;
+  S.library.macGen += 1;
+  S.library.macLoading = false;
+  try {
+    const res = (await api.libraryScan({ projectPath: S.project && S.project.path, scope: 'project' })) || {};
+    S.library.items = res.items || []; S.library.edges = res.edges || [];
+  } catch (_) { S.library.items = []; S.library.edges = []; }
+  S.library.macLoaded = false;
+  S.library.loading = false; S.library.loaded = true;
+  if (keepMac) await loadMacLibrary();
+  else maybeLoadMac();
+  if (S.railTab === 'library') refreshRail();
+  refreshPointer(true);   // read-only; it never writes a file on its own
+}
+function maybeLoadMac() {
+  if (S.library.macLoaded || S.library.macLoading) return;
+  const openGroups = new Set(MAC_GROUP_KEYS.filter((k) => !S.library.collapsed.has(k)));
+  if (shouldLoadMac({ openGroups, query: S.library.q, macLoaded: false })) loadMacLibrary();
+}
+async function loadMacLibrary() {
+  if (S.library.macLoaded || S.library.macLoading) return;
+  S.library.macLoading = true;
+  const gen = S.library.macGen;
+  try {
+    const res = (await api.libraryScan({ projectPath: S.project && S.project.path, scope: 'mac' })) || {};
+    if (gen !== S.library.macGen) return;
+    const seen = new Set(S.library.items.map((i) => i.id));
+    for (const i of (res.items || [])) if (!seen.has(i.id)) S.library.items.push(i);
+    if (res.edges && res.edges.length) S.library.edges = (S.library.edges || []).concat(res.edges);
+    S.library.macLoaded = true;
+  } catch (_) {}
+  if (gen === S.library.macGen) S.library.macLoading = false;
+  if (S.railTab === 'library') refreshRail();
+}
+async function refreshServices() {
+  if (S.services.loading) return;
+  S.services.loading = true;
+  // Coverage is computed against installed agents, so the detect pass has to
+  // land first — refreshAgents dedupes in-flight calls, this never re-scans.
+  if (!S.agents) { try { await refreshAgents(); } catch (_) {} }
+  try {
+    const res = await api.listServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
+    S.services.catalog = res.catalog || []; S.services.connected = res.connected || [];
+    S.services.coverage = res.coverage || null;
+  } catch (_) {}
+  S.services.loading = false;
+  if (S.railTab === 'library') refreshRail();
+  if (S.overlay && S.overlay.type === 'connect') renderOverlay();
+}
+const TYPE_CHIP = { agent: { code: 'AG', kind: 'agent' }, skill: { code: 'SK', kind: 'skill' }, command: { code: 'CM', kind: 'command' } };
+const LIB_MAKE = [
+  { key: 'agent', icon: 'agent', code: 'AG', kind: 'agent', name: 'Agent', sub: 'craft', title: 'Craft an autonomous agent' },
+  { key: 'skill', icon: 'skill', code: 'SK', kind: 'skill', name: 'Skill', sub: 'teach', title: 'Teach an agent skill' },
+  { key: 'mcp', icon: 'mcp', code: 'MC', kind: 'service', name: 'MCP', sub: 'link', title: 'Link MCP tool server' },
+];
+function libItemTag(i) {
+  if (i.type === 'skill' && i.scope === 'project') {
+    const a = availabilityTag(i);
+    return `<span class="scope-tag" data-tone="${a.tone}" title="${esc(a.title)}">${esc(a.text)}</span>`;
+  }
+  if (i.platform === 'project') {
+    return `<span class="scope-tag" data-tone="ok" title="${esc(i.filePath)}">project</span>`;
+  }
+  const who = agentNameOf(cliKey(i) || i.platform);
+  return `<span class="scope-tag" title="${esc(i.filePath)}">${esc(who)}</span>`;
+}
+function serviceCovLine(sv) {
+  const cov = S.services.coverage && S.services.coverage[sv.id];
+  const writable = new Set(receiversOf('mcp', installedAgentIds()));
+  const missing = cov ? cov.missing.filter((id) => writable.has(id)) : [];
+  const have = cov ? (cov.have || []).filter((id) => writable.has(id)) : (sv.platforms || []);
+  if (missing.length) {
+    return `<span class="ok" style="color:var(--amber-ink)">●</span> ${esc(missing.map(agentNameOf).join(' · '))} missing`;
+  }
+  return `<span class="ok">●</span> ${esc(have.map(agentNameOf).join(' · ') || 'connected')}`;
+}
+
+// What a row is allowed to claim. Only two things make a skill runnable from
+// here: this project's pointer names it, or the agent that owns the folder reads
+// it natively. Everything else is a file on disk that happens to be a skill, and
+// saying so is what stops "Use here" from looking pointless.
+function availabilityTag(i) {
+  if (i.broken) return { text: 'broken', tone: 'bad', title: 'Its files are gone — this is a link to nothing. ' + (i.linkTarget || '') };
+  if (i.availability === 'project') {
+    // "runs here" would be a lie while no agent has been told it exists, so the
+    // tag carries that rather than a second warning line under the description.
+    const st = S.pointer;
+    if (st && (st.unlisted || []).includes(i.slug)) {
+      // short on purpose: the tag sits beside the name in a 282px rail, and a
+      // long one pushes the name into an ellipsis, which is the thing you scan for
+      return { text: 'unlisted', tone: 'warn', title: 'It is in this project, but no agent has been told about it yet. Tell them, below.' };
+    }
+    return { text: 'runs here', tone: 'ok', title: 'Announced in AGENTS.md — a session started in this project can use it.' };
+  }
+  if (i.availability === 'agent') {
+    const a = (S.agents || []).find((x) => x.id === i.ownerAgent);
+    const who = (a && a.name) || i.ownerAgent;
+    return { text: who + ' only', tone: 'mute', title: `${who} reads this folder itself. Nami's sessions here won't see it unless you copy it in.` };
+  }
+  return { text: 'not wired', tone: 'mute', title: 'It sits in a shared folder that no agent reads. Copy it here to use it.' };
+}
+// Short on purpose: the tag sits beside the item's name in a 282px rail, and
+// the name is what you are actually scanning for. Longer wording lives on the
+// detail sheets, where there is room for it.
+function scopeTagText(scope) { return scope === 'project' ? 'project' : W.yourMac; }
+
+// ---- pointer status: silent when healthy -----------------------------------
+// If every skill is announced there is nothing to say, and a line that always
+// says the same thing is noise. So this surfaces only the exception: a skill no
+// agent has been told about, usually one that arrived with a git pull.
+async function refreshPointer(force) {
+  const dir = S.project && S.project.path;
+  if (!dir) { S.pointer = null; return; }
+  if (S.pointerLoading && !force) return;
+  S.pointerLoading = true;
+  try { S.pointer = await api.pointerStatus({ dir, agentIds: installedAgentIds() }); }
+  catch (_) { S.pointer = null; }
+  S.pointerLoading = false;
+  if (S.railTab === 'library') refreshRail();
+}
+function installedAgentIds() { return (S.agents || []).filter((a) => a.found).map((a) => a.id); }
+function agentNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
+// A `## Skills` heading the user wrote themselves. Nami appends below it rather
+// than taking it over — their wording is usually better than anything generated
+// from frontmatter, and rewriting prose we didn't author is not a trade worth
+// making. But two Skills sections in one file is worth mentioning once.
+const FOREIGN_DISMISSED = 'bond-foreign-skills-dismissed';
+function appendForeignNote(list) {
+  const st = S.pointer;
+  const dir = S.project && S.project.path;
+  if (!st || !st.foreignSection || !dir) return;
+  let done = [];
+  try { done = JSON.parse(localStorage.getItem(FOREIGN_DISMISSED) || '[]'); } catch (_) { done = []; }
+  if (done.includes(dir)) return;
+  const note = document.createElement('div');
+  note.className = 'ptr-note';
+  note.innerHTML = `<span class="pn-msg">AGENTS.md also has a Skills section you wrote. Bond left it alone and put its own list below — tidy up whenever you like.</span>
+    <button class="pn-x" title="Got it">✕</button>`;
+  list.appendChild(note);
+  q('.pn-x', note).onclick = (e) => {
+    e.stopPropagation();
+    try { localStorage.setItem(FOREIGN_DISMISSED, JSON.stringify(done.concat([dir]))); } catch (_) {}
+    refreshRail();
+  };
+}
+function appendPointerBar(list) {
+  appendForeignNote(list);
+  const st = S.pointer;
+  if (!st || st.inSync) return;
+  const bits = [];
+  if ((st.unlisted || []).length) bits.push(`${st.unlisted.length} not announced to any agent`);
+  if ((st.stale || []).length) bits.push(`${st.stale.length} still listed after being deleted`);
+  if ((st.missingFiles || []).length) bits.push(`${st.missingFiles.join(' + ')} missing`);
+  const bar = document.createElement('div');
+  bar.className = 'ptr-bar';
+  bar.innerHTML = `<span class="pb-msg">⚠ ${esc(st.error ? st.error : bits.join(' · '))}</span>
+    ${st.error ? '' : '<button class="btn pb-go">Tell them</button>'}`;
+  list.appendChild(bar);
+  const go = q('.pb-go', bar);
+  if (go) go.onclick = async (e) => { e.stopPropagation(); await writePointers(go); };
+}
+// The one write the Library can make, and it names its files first.
+async function writePointers(btn) {
+  const dir = S.project && S.project.path;
+  if (!dir) { toast('Open a folder first.'); return; }
+  const agentIds = installedAgentIds();
+  if (btn) { btn.disabled = true; btn.textContent = 'Telling…'; }
+  const res = await api.pointerWrite({ dir, agentIds });
+  if (!res || !res.ok) { toast((res && res.error) || 'Could not write the pointer files'); if (btn) { btn.disabled = false; btn.textContent = 'Tell them'; } return; }
+  const n = (res.written || []).length;
+  toast(n ? `Updated ${res.written.join(', ')} — every installed agent knows now.` : 'Already up to date.');
+  await refreshPointer(true);
+  loadLibrary(true);
+}
+function toggleLibGroup(key) {
+  if (S.library.collapsed.has(key)) S.library.collapsed.delete(key);
+  else S.library.collapsed.add(key);
+  maybeLoadMac();
+  refreshRail();
+}
+function appendLibItem(sect, i) {
+  const chip = TYPE_CHIP[i.type] || TYPE_CHIP.agent;
+  const row = document.createElement('div'); row.className = 'agent-row';
+  const path = shortHome(i.filePath || i.dirPath || '');
+  row.innerHTML = `${chipHtml({ key: i.type, code: chip.code, kind: chip.kind })}
+    <span class="col"><span class="name">${esc(i.name)}</span><span class="tools">${esc(path)}</span></span>
+    ${libItemTag(i)}<span class="chev">›</span>`;
+  row.onclick = () => openCard(i);
+  sect.appendChild(row);
+}
+function appendServiceRow(sect, sv) {
+  const cat = S.services.catalog.find((s) => s.id === sv.id);
+  const cov = S.services.coverage && S.services.coverage[sv.id];
+  const writable = new Set(receiversOf('mcp', installedAgentIds()));
+  const missing = cov ? cov.missing.filter((id) => writable.has(id)) : [];
+  const row = document.createElement('div'); row.className = 'agent-row';
+  row.innerHTML = `${chipHtml({ key: iconKeyFor(sv.id) || 'mcp', code: (cat && cat.code) || 'SV', kind: 'service' })}
+    <span class="col"><span class="name">${esc(sv.name)}</span>
+    <span class="tools">${serviceCovLine(sv)}</span></span>
+    ${missing.length ? '<button class="btn sv-tell">tell them</button>' : `<span class="scope-tag">${sv.scopes && sv.scopes.includes('project') ? 'project' : W.thisMac}</span>`}`;
+  row.onclick = () => openServiceDetails(sv);
+  const tell = row.querySelector('.sv-tell');
+  if (tell) tell.onclick = async (e) => {
+    e.stopPropagation();
+    tell.disabled = true; tell.textContent = 'telling…';
+    await api.deliverServices({ projectPath: S.project && S.project.path, agentIds: installedAgentIds() });
+    refreshServices();
+  };
+  sect.appendChild(row);
+}
+function refreshLibraryRail(c) {
+  if (!S.library.loaded) loadLibrary();
+  const head = document.createElement('div'); head.className = 'rail-head';
+  head.innerHTML = `<span class="title">Extensions & Tools</span>
+    <span class="racts"><button type="button" class="lib-exp">expand all</button>
+    <button type="button" class="lib-col">collapse all</button></span>`;
+  c.appendChild(head);
+  q('.lib-exp', head).onclick = () => { S.library.collapsed.clear(); maybeLoadMac(); refreshRail(); };
+  q('.lib-col', head).onclick = () => {
+    for (const g of SHELF_GROUPS) S.library.collapsed.add(g.key);
+    refreshRail();
+  };
+  const make = document.createElement('div'); make.className = 'lib-new-grid';
+  make.innerHTML = LIB_MAKE.map((m) => `<div class="add-card lib-new" data-make="${esc(m.key)}" tabindex="0" role="button" title="${esc(m.title)}">
+      ${chipHtml({ key: m.icon, code: m.code, kind: m.kind })}
+      <span class="ac-name">${esc(m.name)}</span><span class="ac-desc">${esc(m.sub)}</span></div>`).join('');
+  c.appendChild(make);
+  make.querySelectorAll('.lib-new').forEach((el) => {
+    const go = () => (el.dataset.make === 'mcp' ? openConnect() : openCreate(el.dataset.make));
+    el.onclick = go;
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+  const top = document.createElement('div'); top.className = 'lib-top';
+  const search = document.createElement('input');
+  search.className = 'lib-search'; search.placeholder = 'Search tools, skills, agents & MCP…'; search.value = S.library.q;
+  search.oninput = () => { S.library.q = search.value; maybeLoadMac(); refreshRail(); const s = q('.lib-search', c); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } };
+  top.appendChild(search); c.appendChild(top);
+  const list = document.createElement('div'); list.className = 'lib-list'; c.appendChild(list);
+  if (!S.library.loaded) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = 'Scanning…'; list.appendChild(e); return; }
+  const ql = S.library.q.trim().toLowerCase();
+  const match = (i) => !ql || (i.name + ' ' + i.description + ' ' + i.slug + ' ' + (i.filePath || '')).toLowerCase().includes(ql);
+  let shown = 0;
+  for (const g of SHELF_GROUPS) {
+    const isSvc = g.key === 'services' || g.key === 'mac-services';
+    const items = isSvc
+      ? S.services.connected.filter((sv) => serviceShelf(sv) === g.key && (!ql || (sv.id + ' ' + sv.name).toLowerCase().includes(ql)))
+      : S.library.items.filter((i) => shelfOf(i) === g.key && match(i));
+    const pendingMac = g.mac && !isSvc && !S.library.macLoaded;
+    if (!items.length && !pendingMac && !(g.key === 'services' && !ql)) continue;
+    shown += items.length + (g.key === 'services' ? 1 : 0) + (pendingMac ? 1 : 0);
+    const open = ql ? true : !S.library.collapsed.has(g.key);
+    const sect = document.createElement('div'); sect.className = 'lib-sect'; list.appendChild(sect);
+    const lab = document.createElement('div'); lab.className = 'lib-group';
+    const count = pendingMac ? macCountLabel({ loaded: false, n: items.length }) : items.length;
+    lab.innerHTML = `<span class="lg-caret">${open ? '▾' : '▸'}</span><span>${esc(g.label)}</span><span class="lg-count">${esc(String(count))}</span>`;
+    lab.onclick = () => toggleLibGroup(g.key);
+    sect.appendChild(lab);
+    if (!open) continue;
+    if (pendingMac) {
+      const wait = document.createElement('div'); wait.className = 'rail-empty';
+      wait.textContent = 'Scanning…';
+      sect.appendChild(wait);
+      continue;
+    }
+    if (isSvc) {
+      for (const sv of items) appendServiceRow(sect, sv);
+      if (g.key === 'services') {
+        const add = document.createElement('div'); add.className = 'agent-row';
+        add.innerHTML = `<span class="code" data-kind="service">⚡</span>
+          <span class="col"><span class="name">Link MCP Server</span><span class="tools">GitHub, PostgreSQL, Slack, custom…</span></span><span class="chev">›</span>`;
+        add.onclick = () => openConnect();
+        sect.appendChild(add);
+      }
+      continue;
+    }
+    if (g.mac) {
+      const buckets = new Map();
+      for (const i of items) {
+        const k = cliKey(i) || 'other';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(i);
+      }
+      const keys = CLI_ORDER.filter((k) => buckets.has(k)).concat([...buckets.keys()].filter((k) => !CLI_ORDER.includes(k)));
+      for (const k of keys) {
+        const subKey = g.key + ':' + k;
+        const subOpen = ql ? true : !S.library.collapsed.has(subKey);
+        const sub = document.createElement('div'); sub.className = 'lib-group sub';
+        sub.innerHTML = `<span class="lg-caret">${subOpen ? '▾' : '▸'}</span><span>${esc(agentNameOf(k))}</span><span class="lg-count">${buckets.get(k).length}</span>`;
+        sub.onclick = () => toggleLibGroup(subKey);
+        sect.appendChild(sub);
+        if (subOpen) for (const i of buckets.get(k)) appendLibItem(sect, i);
+      }
+      continue;
+    }
+    for (const i of items) appendLibItem(sect, i);
+    if (g.key === 'skills') appendPointerBar(sect);
+  }
+  if (!shown) { const e = document.createElement('div'); e.className = 'rail-empty'; e.textContent = ql ? 'No match.' : 'Nothing here yet — the buttons above make your first.'; list.appendChild(e); }
+}
+// With no folder there is exactly one thing worth saying, and it is the thing
+// the screen is asking you to fix. This used to announce "claude ready" when the
+// Claude CLI happened to be installed — from when the app only ran that one
+// agent. It named a single agent on the first screen a new user sees, and said
+// it on a screen where no agent can start: every action here needs a folder.
+function renderFooter() { els.footerPath.textContent = S.project ? S.project.pathShort : 'no workspace attached'; }
+
+// ===========================================================================
+//  Grid of tiles
+// ===========================================================================
+function statusMeta(p) {
+  const c = statusColors();
+  if (p.kind === 'browser') return { label: 'browser', color: c.ok };
+  if (p.kind === 'card') return { label: p.dirty ? 'unsaved' : (p.item.readOnly ? 'read-only' : p.item.type), color: p.dirty ? c.warn : c.mut };
+  if (p.kind === 'viewer') return { label: p.sub, color: c.mut };
+  if (p.kind === 'editor') return { label: p.dirty ? 'unsaved' : 'file', color: p.dirty ? c.warn : c.mut };
+  if (p.kind === 'acp') {
+    if (p.exited) return { label: 'closed', color: c.mut };
+    if (p.attention) return { label: 'needs you', color: c.warn };
+    if (p.working) return { label: 'working', color: c.warn };
+    return { label: 'live', color: c.ok };
+  }
+  if (p.exited) return { label: 'closed', color: c.mut };
+  // A one-shot says how its command went, not just that a shell is alive: the
+  // whole reason the tile exists is the command, and "live" while sitting at a
+  // finished prompt is the thing that read as a dead end.
+  // installOk is set once the scan has confirmed it, because the exit code of
+  // an install cannot (see finishAgentInstall). A tile still waiting on that
+  // answer says 'finished', which is the only thing known for certain.
+  if (p.oneShot && p.commandDone) {
+    if (p.installOk === true) return { label: 'installed', color: c.ok };
+    if (p.installOk === false) return { label: 'did not install', color: c.warn };
+    return { label: 'finished', color: c.mut };
+  }
+  if (p.oneShot) return { label: 'running', color: c.warn };
+  if (p.attention) return { label: 'needs you', color: c.warn };
+  return { label: 'live', color: c.ok };
+}
+function kindLabel(p) {
+  if (p.kind === 'browser') return 'browser';
+  if (p.kind === 'card') return p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope;
+  if (p.kind === 'viewer') return 'viewer · ' + baseNameOf(p.filePath);
+  if (p.kind === 'editor') return 'editor · ' + baseNameOf(p.filePath);
+  if (p.kind === 'acp') return 'chat \u00b7 ' + shortHome(p.cwd);
+  if (p.kind === 'claude') return 'claude · ' + shortHome(p.cwd);
+  if (p.kind === 'shell') return 'terminal · ' + shortHome(p.cwd);
+  if (p.kind === 'harness') return (p.program ? baseNameOf(p.program) : 'harness') + ' · ' + shortHome(p.cwd);
+  return 'run · ' + shortHome(p.cwd);
+}
+
+// The no-folder desk: the first screen anyone ever sees, and until now a wall
+// for the exact person the app is for. It asked for a folder and offered one
+// button to go and find one — fine if you already work in projects, useless if
+// you have never made a folder for a piece of work in your life. So it offers
+// to make one.
+//
+// Which button is green depends on whether this is a first run. With Recents
+// empty there is nothing to open, so making one is the only sensible next move
+// and it takes the emphasis. Once anything is in Recents they swap: from then
+// on, opening something that already exists is the common case, and a person
+// with folders does not want to be nudged into making another.
+function emptyDeskHtml() {
+  const first = !S.recents.length;
+  const make = `<button class="btn ${first ? 'btn--go ' : ''}lane-cta" id="lane-make">➕ Initialize Workspace</button>`;
+  const open = first
+    ? `<button class="btn lane-cta" id="lane-open">📁 Select Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`
+    : `<button class="btn btn--go lane-cta" id="lane-open">📁 Open Workspace Directory<span class="kb"> ${kbd('open-folder')}</span></button>`;
+  return `<div class="lane-empty">
+      <div class="bond-deck-badge"><span class="deck-dot"></span>WORKSPACE INITIALIZATION REQUIRED</div>
+      <div class="big">Select a Project Directory to Begin</div>
+      <div class="hint">Bond isolates terminal agents, runners and execution sandboxes inside your chosen folder.</div>
+      <div class="lane-ctas">${first ? make + open : open + make}</div>
+      <button class="lane-tour" id="lane-tour">Bond Quick Start & Overview</button>
+    </div>`;
+}
+
+// Hands off to the save panel in main, then through the ordinary switch path —
+// a folder Nami made is not a special kind of folder once it exists.
+async function makeFolderDialog() {
+  const info = await api.makeFolder();
+  if (!info) return;
+  if (info.error) { toast('Could not make that folder — ' + info.error); return; }
+  await switchToFolder(info);
+  toast(`Made ${info.name}. Open “Start here” for what to do next.`);
+}
+
+function renderGrid() {
+  if (!S.panels.length) {
+    tileEls.forEach((t) => { if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); }); tileEls.clear();
+    // The last tab leaves the same empty desk as startup, with no stale Split frame.
+    const pv = q('.paneview', els.grid.parentElement);
+    if (pv) { pv._resize?.disconnect(); pv.remove(); }
+    els.grid.parentElement.classList.remove('is-split');
+    els.grid.classList.remove('has-focus');
+    // The empty lane is not a card and must not be laid out on the card grid —
+    // it is one block that wants the whole canvas, and a 210px row track would
+    // cut it off. Its own box, not a track.
+    els.grid.classList.add('is-empty');
+    els.grid.innerHTML = S.project
+      ? `<div class="lane-empty">
+          <div class="bond-deck-badge"><span class="deck-dot live"></span>BOND OPERATIONAL DECK · STANDBY</div>
+          <div class="big">Autonomous Workspace Ready</div>
+          <div class="hint">Dispatch multi-model AI agents, run terminal pipelines, or edit project files side-by-side.</div>
+          <div class="lane-ctas">
+            <button class="btn btn--go lane-cta" id="lane-new">⚡ Dispatch Agent<span class="kb"> ${kbd('new-session')}</span></button>
+            <button class="btn lane-cta" id="lane-open">📁 Switch Directory<span class="kb"> ${kbd('open-folder')}</span></button>
+          </div>
+          <div class="bond-feature-cards">
+            <div class="b-card">
+              <div class="b-card-ico">🤖</div>
+              <div class="b-card-title">Agent Fleet</div>
+              <div class="b-card-desc">Claude, Grok, Codex, Gemini, Hermes & Ollama</div>
+            </div>
+            <div class="b-card">
+              <div class="b-card-ico">⚡</div>
+              <div class="b-card-title">Real PTY Grids</div>
+              <div class="b-card-desc">Low-latency terminal execution with deep file watchers</div>
+            </div>
+            <div class="b-card">
+              <div class="b-card-ico">🧩</div>
+              <div class="b-card-title">MCP Extensible</div>
+              <div class="b-card-desc">Seamless tool integration via Model Context Protocol</div>
+            </div>
+          </div>
+        </div>`
+      : emptyDeskHtml();
+    const make = q('#lane-make', els.grid); if (make) make.onclick = makeFolderDialog;
+    const tour = q('#lane-tour', els.grid); if (tour) tour.onclick = openQuickStart;
+    const cta = q('#lane-open', els.grid); if (cta) cta.onclick = openFolderDialog;
+    const start = q('#lane-new', els.grid); if (start) start.onclick = () => openLauncher();
+    browsers.decorate();
+    return;
+  }
+  els.grid.classList.remove('is-empty');
+  if (q('.lane-empty', els.grid)) els.grid.innerHTML = '';
+  for (const [id, t] of tileEls) { if (!S.panels.find((p) => p.id === id)) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); tileEls.delete(id); } }
+  els.grid.classList.toggle('has-focus', !!S.expandedId);
+  // Moving a node takes the keyboard with it: insertBefore below re-parents the
+  // tile, and the browser drops focus from whatever was inside it — for a
+  // session tile that is xterm's hidden textarea. Expanding a tile goes straight
+  // through here without focusPanel(), so nothing put the keyboard back and the
+  // terminal silently stopped accepting input until the tile was clicked again.
+  // Remember who had it, and give it back once the moves are done.
+  const focused = document.activeElement;
+  const focusedTile = focused && focused.closest ? focused.closest('.tile') : null;
+  const refocusId = focusedTile ? focusedTile.dataset.id : null;
+  // Moving a DOM node restarts its CSS animation, so settled tiles stay put.
+  let cursor = els.grid.firstElementChild;
+  const inPane = (p) => S.view === 'split' && (p.id === S.split.sessionId || p.id === S.split.fileId);
+  for (const p of S.panels) {
+    if (!tileEls.has(p.id)) mountTile(p);
+    const t = tileEls.get(p.id);
+    t.root.classList.toggle('focused', p.id === S.expandedId);
+    t.root.classList.toggle('active', p.id === S.activeId);
+    refreshTileHead(p);
+    if (inPane(p)) continue;                 // the split's two cards are placed below
+    if (t.root === cursor) cursor = cursor.nextElementSibling;
+    else els.grid.insertBefore(t.root, cursor);
+    applySpan(p, t);
+    if (t.fit) markFit(t);
+  }
+  renderSplit();
+  browsers.decorate();
+  // Only if the move actually cost us the keyboard — never steal it from a
+  // rename box, the rail, or an overlay that opened during the render.
+  const now = document.activeElement;
+  if (refocusId && !(now && now.closest && now.closest('.tile'))) {
+    const t = tileEls.get(refocusId);
+    if (t) { if (t.term) t.term.focus(); else if (t.ta) t.ta.focus(); }
+  }
+}
+
+// ---- the split view -------------------------------------------------------
+// Two panes beside the (hidden) grid: the chosen session card on the left, one
+// of its files on the right, each the whole tile re-parented — head, body,
+// terminal and all. Every other card stays mounted in the grid, unseen, so a
+// terminal keeps running and Desk brings everything back untouched.
+function renderSplit() {
+  const main = els.grid.parentElement;
+  let pv = q('.paneview', main);
+  if (S.view !== 'split') {
+    // renderGrid already moved the two cards back into the grid; only the frame is left
+    if (pv) { pv._resize?.disconnect(); for (const el of Array.from(pv.querySelectorAll('.tile'))) els.grid.appendChild(el); pv.remove(); }
+    main.classList.remove('is-split');
+    return;
+  }
+  main.classList.add('is-split');
+  // The state may be stale — set at boot before the desk was restored, or
+  // pointing at a card that closed. Repair it against the panels that exist.
+  const fixed = splitAfter({ ...S.split, panels: S.panels }, { type: 'close' });
+  if (fixed.sessionId !== S.split.sessionId || fixed.fileId !== S.split.fileId) { S.split = fixed; S.splitFull = null; }
+  if (!pv) {
+    pv = document.createElement('div'); pv.className = 'paneview';
+    pv.innerHTML = '<div class="pane-switch" role="group" aria-label="Visible pane"><button data-pane="agent">Session</button><button data-pane="files">File</button></div><div class="pane pane-agent"></div><div class="pane-divider" title="Drag to resize"></div><div class="pane pane-files"></div>';
+    main.insertBefore(pv, els.grid);
+    wireDivider(pv);
+    pv.querySelectorAll('[data-pane]').forEach((b) => { b.onclick = () => {
+      const id = b.dataset.pane === 'agent' ? S.split.sessionId : S.split.fileId;
+      if (id) focusPanel(id);
+    }; });
+    pv._resize = new ResizeObserver(() => syncSplitLayout(pv));
+    pv._resize.observe(pv);
+  }
+  syncSplitLayout(pv);
+  pv.classList.toggle('full-agent', S.splitFull === 'agent');
+  pv.classList.toggle('full-files', S.splitFull === 'files');
+  const place = (host, id, emptyText) => {
+    const want = id ? tileEls.get(id) : null;
+    for (const el of Array.from(host.children)) {
+      if (want && el === want.root) continue;
+      if (el.classList.contains('tile')) els.grid.appendChild(el); else el.remove();
+    }
+    if (want) {
+      if (want.root.parentElement !== host) { host.appendChild(want.root); want.root.style.gridColumn = ''; want.root.style.gridRow = ''; }
+      want.root.classList.remove('focused');
+      if (want.fit) markFit(want);
+    } else if (!q('.pane-empty', host)) {
+      const e = document.createElement('div'); e.className = 'pane-empty'; e.textContent = emptyText; host.appendChild(e);
+    }
+  };
+  const sess = S.split.sessionId ? S.panels.find((x) => x.id === S.split.sessionId) : null;
+  place(q('.pane-agent', pv), S.split.sessionId, 'No session — ' + kbd('new-session') + ' starts one');
+  place(q('.pane-files', pv), S.split.fileId, sess ? `No files with ${sess.title} yet — open one from the Workspace tab` : 'Open a file from the Workspace tab');
+}
+function syncSplitLayout(pv) {
+  const cs = getComputedStyle(pv);
+  const width = pv.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const layout = splitLayout(width, S.splitRatio);
+  pv.classList.toggle('is-compact', layout.compact);
+  pv.style.setProperty('--split', layout.left + 'px');
+  pv.dataset.show = S.activeId === S.split.fileId ? 'files' : 'agent';
+  pv.querySelectorAll('[data-pane]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.pane === pv.dataset.show));
+    b.disabled = !(b.dataset.pane === 'agent' ? S.split.sessionId : S.split.fileId);
+  });
+}
+// The line between the panes: drag it, the left pane keeps the width.
+function wireDivider(pv) {
+  const div = q('.pane-divider', pv);
+  div.onmousedown = (e) => {
+    e.preventDefault(); ptyDiscrete();
+    const r = pv.getBoundingClientRect();
+    const cs = getComputedStyle(pv);
+    const left = parseFloat(cs.paddingLeft || '0');
+    const mv = (ev) => {
+      const width = pv.clientWidth - left - parseFloat(cs.paddingRight || '0');
+      const px = splitLayout(width, (ev.clientX - r.left - left) / (width - 20)).left;
+      S.splitRatio = px / (width - 20); syncSplitLayout(pv);
+      tileEls.forEach((t) => { if (t.fit && t.root.closest('.paneview')) markFit(t); });
+    };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+  };
+}
+// In split, ⤢ fills the desk with one pane instead of hiding the other cards.
+function toggleSplitFull(id) {
+  const which = id === S.split.sessionId ? 'agent' : id === S.split.fileId ? 'files' : null;
+  if (!which) return;
+  S.splitFull = S.splitFull === which ? null : which;
+  renderSplit();
+}
+
+// A card's size is two numbers it keeps: how many columns and how many rows it
+// asked for. What it gets is whatever fits the desk it is on right now.
+//
+// Stored unclamped, on purpose. Clamping on the way in would mean narrowing the
+// window permanently destroyed a 4-wide card — it would come back as 2 and stay
+// there. Clamping on the way out means the desk gives it back the moment there
+// is room again.
+//
+// Focus is not a size. While a tile is focused the stylesheet owns its
+// placement, so the inline properties come off and go back on afterwards —
+// which is why ⤢ twice returns a 3×2 card to 3×2 and not to the default.
+function applySpan(p, t) {
+  if (!t || !t.root) return;
+  if (t.root.parentElement && t.root.parentElement.classList.contains('pane')) return; // a pane owns the size
+  if (p.id === S.expandedId) { t.root.style.gridColumn = ''; t.root.style.gridRow = ''; return; }
+  const cols = syncDeskColumns.last || MIN_COLS;
+  t.root.style.gridColumn = 'span ' + clampSpan(p.spanX, cols);
+  t.root.style.gridRow = 'span ' + clampRows(p.spanY);
+}
+
+// ---- the grip ---------------------------------------------------------------
+// The card you are holding is the thing that moves. On grab it lifts out of the
+// grid and follows the hand pixel for pixel — live content, no scrim, no ghost
+// outline. A slot (a real grid item) holds its place, so the moment the drag
+// crosses a column line the slot's span changes and the neighbours reflow
+// around it: you watch the final layout happen while you are still holding.
+// Release settles the card into the slot.
+//
+// The first version froze the card and moved a dashed outline instead, out of
+// fear of refitting a terminal per frame. That fear belonged to the old
+// single-clock world: clock A repaints the canvas cheaply on every frame, and
+// clock B still tells the agent exactly once — rec.holdPty parks it until the
+// drop. What the outline method actually bought was a drag where nothing on
+// screen follows your hand, which reads as the app being stuck.
+function wireGrip(p, rec, grip) {
+  const commit = (x, y) => {
+    const changed = p.spanX !== x || p.spanY !== y;
+    p.spanX = x; p.spanY = y;
+    renderGrid();
+    if (changed) savePanels();
+  };
+
+  grip.addEventListener('dblclick', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    ptyDiscrete();
+    commit(MIN_COLS, MIN_COLS);
+    toast('Card size · reset');
+  });
+
+  // Sizing without a mouse. The grip keeps focus across the re-render, or the
+  // second press would go to the document and scroll the desk instead.
+  grip.addEventListener('keydown', (e) => {
+    const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    const dy = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (!dx && !dy) return;
+    e.preventDefault(); e.stopPropagation();
+    const cols = syncDeskColumns.last || MIN_COLS;
+    ptyDiscrete();
+    commit(clampSpan(clampSpan(p.spanX, cols) + dx, cols), clampRows(clampRows(p.spanY) + dy));
+    const again = tileEls.get(p.id);
+    if (again) { const g = q('.tile-grip', again.root); if (g) g.focus(); }
+  });
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();   // the header owns dragging the card; the corner owns sizing it
+    const grid = els.grid;
+    const cs = getComputedStyle(grid);
+    const inner = grid.clientWidth
+      - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    const cols = syncDeskColumns.last || MIN_COLS;
+    const pitchX = (inner + GAP) / cols;     // one column plus the gap after it
+    const pitchY = ROW + GAP;
+    const startW = rec.root.offsetWidth, startH = rec.root.offsetHeight;
+    const left = rec.root.offsetLeft, top = rec.root.offsetTop;
+    let sx = clampSpan(p.spanX, cols), sy = clampRows(p.spanY);
+    let moved = false;
+
+    // The slot: keeps the card's place in the flow and shows where it lands.
+    // Its corners are read off the tile itself, so every theme's slot matches
+    // every theme's card — glass is 22px, paper is square, and a theme added
+    // later is right without knowing this code exists.
+    const slot = document.createElement('div');
+    slot.className = 'desk-slot';
+    slot.style.gridColumn = 'span ' + sx;
+    slot.style.gridRow = 'span ' + sy;
+    slot.style.borderRadius = getComputedStyle(rec.root).borderRadius;
+    const tag = document.createElement('span');
+    tag.className = 'ds-size';
+    tag.textContent = sx + ' × ' + sy;
+    slot.appendChild(tag);
+    grid.insertBefore(slot, rec.root);
+
+    // Lift: absolute takes the tile out of grid flow (the slot keeps its seat),
+    // and explicit width/height make it follow the hand. Its ResizeObserver
+    // keeps firing, so clock A refits the live terminal on every frame of this.
+    rec.root.classList.add('lifting');
+    rec.root.style.position = 'absolute';
+    rec.root.style.left = left + 'px';
+    rec.root.style.top = top + 'px';
+    rec.root.style.width = startW + 'px';
+    rec.root.style.height = startH + 'px';
+    rec.holdPty = true;                 // clock B waits for the drop
+    clockB.setHold(p.id, true);
+
+    const place = (w, h) => {
+      rec.root.style.width = w + 'px';
+      rec.root.style.height = h + 'px';
+      const nx = clampSpan(Math.round((w + GAP) / pitchX), cols);
+      const ny = clampRows(Math.round((h + GAP) / pitchY));
+      if (nx !== sx || ny !== sy) {
+        sx = nx; sy = ny;
+        slot.style.gridColumn = 'span ' + sx;
+        slot.style.gridRow = 'span ' + sy;
+        tag.textContent = sx + ' × ' + sy;
+      }
+    };
+
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - e.clientX) > 2 || Math.abs(ev.clientY - e.clientY) > 2) moved = true;
+      place(Math.max(80, startW + (ev.clientX - e.clientX)),
+            Math.max(60, startH + (ev.clientY - e.clientY)));
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+      slot.remove();
+      rec.root.classList.remove('lifting');
+      rec.root.style.position = ''; rec.root.style.left = ''; rec.root.style.top = '';
+      rec.root.style.width = ''; rec.root.style.height = '';
+      rec.holdPty = false;
+      clockB.setHold(p.id, false);
+      // A press that never moved is not a resize: no commit, no re-render, no
+      // message to the agent — and the stored ask is left alone, which is what
+      // keeps a stray click from overwriting a clamped card's remembered size.
+      if (!moved) { clockB.clearPending(p.id); markFit(rec); return; }
+      ptyDiscrete();                    // the drop is one committed change
+      commit(sx, sy);
+      markFit(rec);
+      // The one message. Usually the post-drop refit changes cols and raises it
+      // itself (which clears pending). When the final size matches the last
+      // live fit, no resize event fires and nothing would ever tell the agent —
+      // this backstop sends the parked notification, and only then.
+      setTimeout(() => {
+        if (clockB.isPending(p.id) && rec.term) {
+          clockB.flushPending(p.id, rec.term.cols, rec.term.rows);
+        }
+      }, 60);
+    };
+    try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  });
+}
+
+const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>`;
+// Saved global and per-tile sizes win over the theme's fresh-session default.
+const TERM_FONT_KEY = 'bond-term-fontsize';
+function defaultTermFont() {
+  const fallback = currentTheme() === 'operator' ? 14 : TERM_FONT_DEFAULT;
+  try { return clampTermFont(localStorage.getItem(TERM_FONT_KEY), fallback); }
+  catch (_) { return fallback; }
+}
+function termFontOf(p) { return clampTermFont(p && p.fontSize, defaultTermFont()); }
+// Zero, every theme. Tracking inherits into xterm's hidden measuring element,
+// which then reports a cell narrower than the font actually paints — same
+// right-edge clipping as a fractional size. Courier Prime wanted 0.2; SF Mono
+// does not need it.
+function termLetterSpacing() { return 0; }
+
+// The terminal draws with the DOM renderer, not the GPU one. The WebGL addon
+// is sharper and much faster on a wall of output, but it repaints by damage and
+// leaves the undamaged canvas alone — so anything it fails to mark dirty stays
+// on screen. In practice that was a block of stale pixels lying across live
+// text, and Claude's welcome banner surviving five redraws stacked on itself.
+// Same command, same build, the addon the only difference.
+//
+// It is a real gain when it works, and worth trying again: what made it fire so
+// often was the column count being wrong, which resized the terminal ten times
+// in the first tenth of a second. That is fixed now (see .term-body in
+// paper.css). The vendored addon stays in ./vendor for that attempt.
+// One tap used to tell every open agent to repaint, immediately — four taps
+// across three sessions was twelve messages and three redrawn screens. The size
+// still applies to every tile at once (it is one shared preference), but the
+// canvas redraw and the agent's notification are now on separate clocks, so a
+// run of taps settles into one message per session.
+function bumpTermFont(dir, p) {
+  const rec = tileEls.get(p.id);
+  const next = nextTermFont(termFontOf(p), dir, defaultTermFont());
+  p.fontSize = next;
+  savePanels();
+  if (rec && rec.term) { rec.term.options.fontSize = next; markFit(rec); }
+  else if (p.kind === 'acp' && rec) rec.body.style.zoom = String(next / defaultTermFont());
+  toast('This session · ' + next + 'px');
+}
+// ---- document text size ------------------------------------------------------
+// Its own dial, separate from the terminal's. 12px monospace and a page of prose
+// are different jobs and one number cannot serve both: turning the terminal up to
+// read what an agent is doing would otherwise turn your notes into billboards.
+//
+// Same rule as the terminal's, though — scale now, and if there is a pty behind
+// it, tell it once you stop.
+const isDocTile = (p) => ['card', 'viewer', 'editor'].includes(p.kind);
+const DOC_SCALE_KEY = 'bond-doc-scale';
+function defaultDocScale() {
+  try { return clampDocScale(localStorage.getItem(DOC_SCALE_KEY), 1); }
+  catch (_) { return 1; }
+}
+function docScaleOf(p) { return clampDocScale(p && p.docScale, defaultDocScale()); }
+function applyDocScale(p, rec) {
+  if (!rec || !rec.root) return;
+  const s = docScaleOf(p);
+  if (s === 1) rec.root.style.removeProperty('--doc-scale');
+  else rec.root.style.setProperty('--doc-scale', String(s));
+}
+// Both layers of an editor scroll together, so anchoring the textarea is enough —
+// assigning its scrollTop fires the scroll handler that drags the underlay and
+// the line numbers along with it.
+function docScrollers(rec) {
+  return [...rec.root.querySelectorAll('.md-read, .ed-area')];
+}
+function bumpDocFont(dir, p) {
+  const rec = tileEls.get(p.id);
+  const next = nextDocScale(docScaleOf(p), dir, defaultDocScale());
+  p.docScale = next;
+  savePanels();
+  // Where you were reading, as a fraction of the document — the pixel offset is
+  // meaningless once every line is a different height.
+  const marks = rec ? docScrollers(rec).map((el) => {
+    const room = el.scrollHeight - el.clientHeight;
+    return { el, frac: room > 0 ? el.scrollTop / room : 0 };
+  }) : [];
+  applyDocScale(p, rec);
+  // New scale means new wrap points — remeasure the gutter before the scroll
+  // position is put back, or the fraction lands against stale heights.
+  if (rec && rec.edSync) rec.edSync();
+  requestAnimationFrame(() => {
+    for (const m of marks) {
+      const room = m.el.scrollHeight - m.el.clientHeight;
+      m.el.scrollTop = room > 0 ? Math.round(m.frac * room) : 0;
+    }
+  });
+  toast('This file · ' + Math.round(next * 100) + '%');
+}
+
+function spawnTerminalTwin(p, draft) {
+  // Same agent, same folder, same session where the CLI can resume it —
+  // and the half-typed message rides along as the seed. The chat pane
+  // closes; the conversation continues in the terminal.
+  const a = (S.agents || []).find((x) => x.id === p.agentId);
+  const seed = draft || undefined;
+  let spawned = null;
+  if (p.agentId === 'claude' || (a && a.kind === 'claude')) {
+    spawned = startPanel({ purpose: 'agent', agentId: 'claude', kind: 'claude', title: p.title || 'Claude session', code: 'CC', cwd: p.cwd, sid: p.acpSid, cont: !!p.acpSid, seed });
+  } else if (a && a.bin) {
+    spawned = startPanel({ ...terminalAgentOptions(a), title: p.title || a.name, code: code2(a.name), command: a.bin, cwd: p.cwd, acpSid: p.acpSid, cont: !!p.acpSid, seed });
+  } else {
+    toast('Open it from ' + kbd('new-session') + ' — new session, pick the agent.');
+    return;
+  }
+  if (spawned) closePanel(p.id);
+}
+// The agent's own name for a chat, over the ACP channel or from its store on
+// disk. Same rung as a terminal's transcript name: it upgrades a prompt guess
+// and never touches a name you typed. ('ai' used to be its own source here,
+// unknown to session-name.mjs and so ranked at zero — a later prompt guess
+// could overwrite the agent's name.)
+function adoptChatTitle(p, title) { applyTitle(p, shorten(String(title), 60), 'agent'); }
+// The first message sent from a card names it at once, as Enter does in a
+// terminal tile; the newline is what commits the draft.
+function promptNamesChat(p, text) { if (p.autoName) feedSessionName(p, String(text || '') + '\n'); }
+function mountTile(p) {
+  const root = document.createElement('div'); root.className = 'tile enter'; root.dataset.id = p.id;
+  root.addEventListener('animationend', (e) => { if (e.target === root) root.classList.remove('enter'); });
+  setTimeout(() => root.classList.remove('enter'), 600); // occluded windows throttle animations — drop it regardless
+  root.innerHTML = `<div class="tile-head" draggable="true">
+      ${panelChip(p)}
+      <span class="col"><span class="t-title">${esc(p.title)}</span><span class="t-sub"></span></span>
+      <span class="t-status"><span class="dot"></span><span class="lbl"></span></span>
+      <button class="t-btn t-mic" title="Dictate into this session">${MIC_SVG}</button>
+      <button class="t-btn t-zoom-out" title="${isDocTile(p) ? 'Smaller text' : 'Smaller terminal text'}"><span class="uni-i">−</span><span class="pix-i">${pixIcon('minus')}</span></button>
+      <button class="t-btn t-zoom-in" title="${isDocTile(p) ? 'Bigger text' : 'Bigger terminal text'}"><span class="uni-i">＋</span><span class="pix-i">${pixIcon('plus')}</span></button>
+      <button class="t-btn t-expand" title="Expand"><span class="uni-i">⤢</span><span class="pix-i">${pixIcon('expand')}</span></button>
+      <button class="t-btn t-close" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
+    </div><div class="tile-body"></div>`;
+  const head = q('.tile-head', root), body = q('.tile-body', root);
+  const rec = { root, head, body, term: null, fit: null, statusDot: q('.t-status .dot', head), ta: null, gutter: null };
+  tileEls.set(p.id, rec);
+  // The grip lives on the card, not in its header — the corner is the thing
+  // itself rather than a button that opens a way to do the thing, and the header
+  // is already at the width where it starts dropping controls.
+  const grip = document.createElement('div');
+  grip.className = 'tile-grip';
+  grip.tabIndex = 0;
+  grip.setAttribute('role', 'slider');
+  grip.setAttribute('aria-label', 'Resize ' + p.title);
+  grip.title = 'Drag to resize · double-click to reset · arrow keys';
+  root.appendChild(grip);
+  wireGrip(p, rec, grip);
+  q('.t-mic', head).onclick = (e) => { e.stopPropagation(); toggleMic(p); };
+  const zi = q('.t-zoom-in', head), zo = q('.t-zoom-out', head);
+  const bump = isDocTile(p) ? bumpDocFont : bumpTermFont;
+  if (zi) zi.onclick = (e) => { e.stopPropagation(); bump(+1, p); };
+  if (zo) zo.onclick = (e) => { e.stopPropagation(); bump(-1, p); };
+  if (isDocTile(p)) applyDocScale(p, rec);
+  q('.t-title', head).addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(p, q('.t-title', head)); });
+  // Expand is a committed change, not a gesture — every tile it moves is told
+  // on the next frame, not 140ms later, so one press is one movement.
+  q('.t-expand', head).onclick = (e) => { e.stopPropagation(); ptyDiscrete(); if (S.view === 'split') { toggleSplitFull(p.id); return; } S.expandedId = S.expandedId === p.id ? null : p.id; renderGrid(); };
+  q('.t-close', head).onclick = (e) => { e.stopPropagation(); closePanel(p.id); };
+  head.addEventListener('mousedown', (e) => { if (!e.target.closest('.t-btn')) focusPanel(p.id, false); });
+  // drag reorder
+  head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; root.classList.add('dragging'); });
+  head.addEventListener('dragend', () => root.classList.remove('dragging'));
+  if (isSessionPanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add browser…', run: () => browsers.newBrowser(p.id) }]); };
+  if (isFilePanel(p)) head.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, tileMenu(p)); };
+  root.addEventListener('dragover', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    // Stopped for the same reason the drop below is: every tile is a direct
+    // child of els.grid, whose own dragover refuses a folder. Without this the
+    // tile names its effect and the grid immediately overwrites it — a folder
+    // dropped on a session would light up copy, turn no-drop, and never arrive.
+    //
+    // A workspace path reads as a file arriving, not as a tile being reordered,
+    // and it says copy: the row you are holding stays exactly where it lives.
+    // Except on an editor or a viewer, which take a file to open and have
+    // nothing to do with a folder — refused in the cursor, not silently on drop.
+    if (isPathDrag(e)) {
+      if (isDirDrag(e) && (p.kind === 'editor' || p.kind === 'viewer')) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.dataTransfer.dropEffect = 'copy'; root.classList.add('file-hint'); return;
+    }
+    root.classList.add(isFileDrag(e) ? 'file-hint' : 'drop-hint');
+  });
+  root.addEventListener('dragleave', () => root.classList.remove('drop-hint', 'file-hint'));
+  root.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    root.classList.remove('drop-hint', 'file-hint');
+    const paths = droppedPaths(e);
+    if (paths.length) return dropFilesOnPanel(p, paths);
+    // Before the reorder fallback: text/plain holds a path here, not a panel id,
+    // and reorderPanels would look for a panel called /Users/... and find none.
+    if (isPathDrag(e)) {
+      const path = draggedPath(e);
+      if (path) return dropPathOnPanel(p, path, isDirDrag(e));
+    }
+    reorderPanels(e.dataTransfer.getData('text/plain'), p.id);
+  });
+
+  if (p.kind === 'browser') browsers.mount(p, rec); else if (p.kind === 'editor') mountEditor(p, rec); else if (p.kind === 'viewer') mountViewer(p, rec); else if (p.kind === 'card') mountCard(p, rec); else if (p.kind === 'acp') mountChatPane(p, rec, { settled: clearAttention, wake: setAttention, open: (f) => openFile(f), toast, rename: adoptChatTitle, prompt: promptNamesChat, status: refreshTileHead, terminal: spawnTerminalTwin, annotationImage:async image=>{const r=await api.browserAnnotationImage({action:'read',id:image.id});if(!r.ok)throw new Error(r.error);return {type:'image',data:r.data,mimeType:r.mimeType};} }); else mountTerminal(p, rec);
+  if (isFilePanel(p) && p.kind !== 'browser') wireFileSelection(p, rec);
+}
+
+function refreshTileHead(p) {
+  const t = tileEls.get(p.id);
+  if (!t) {
+    if (S.overlay && S.overlay.type === 'peek' && S.overlay.panel === p) {
+      const el = q('.pk-title'); if (el) el.textContent = p.title + (p.dirty ? ' •' : '');
+    }
+    return;
+  }
+  const m = statusMeta(p);
+  const titleEl = q('.t-title', t.head);
+  if (!titleEl.querySelector('input')) { // mid-rename: leave the input alone
+    titleEl.textContent = p.title + (p.kind === 'editor' && p.dirty ? ' •' : '');
+    titleEl.title = p.title + ' — double-click to rename';
+  }
+  const owner = p.owner ? S.panels.find((x) => x.id === p.owner) : null;
+  q('.t-sub', t.head).textContent = kindLabel(p) + (owner ? ' · ' + shorten(owner.title, 22) : '');
+  q('.t-status .lbl', t.head).textContent = m.label;
+  t.statusDot.style.background = m.color;
+  t.root.classList.toggle('attention', !!p.attention);
+  t.root.classList.toggle('exited', !!p.exited);
+  if (t.refreshImages) t.refreshImages();
+}
+
+// ---- terminal tiles --------------------------------------------------------
+
+// ---- the two clocks --------------------------------------------------------
+// Resizing a terminal is two jobs, and they were welded together: term.onResize
+// called api.termResize directly, so there was no way to redraw the canvas
+// without also telling the agent. Recomputing the canvas is cheap, local and
+// invisible to anyone else. Telling the pty makes Claude throw its screen away
+// and repaint, slicing whatever was scrolled above it — that is the crop on
+// expand, the mangling on collapse, and every open session being told at once
+// when you tapped ＋.
+//
+// Clock A (markFit → fitCanvas) repaints, once per frame across every tile.
+// Clock B (notifyPty) tells the agent, once, when the gesture stops.
+//
+// Every surface then follows from the rule rather than needing its own handling:
+// expand, collapse, the font buttons and a slow drag on the window edge are all
+// the same two clocks at different speeds.
+const dirtyFits = new Set();
+let fitFrame = null;
+function markFit(rec) {
+  if (!rec || !rec.term || !rec.fit) return;
+  dirtyFits.add(rec);
+  if (fitFrame) return;
+  fitFrame = requestAnimationFrame(() => { fitFrame = null; drainFits(); });
+}
+function drainFits() {
+  const batch = [...dirtyFits];
+  dirtyFits.clear();
+  for (const rec of batch) fitCanvas(rec);
+}
+
+// How long a gesture has to be still before the agent is told. The settle is
+// for CONTINUOUS gestures only — a window-edge drag, where the size keeps
+// changing and coalescing is the point. A committed change — expand, collapse,
+// a grip drop — is one movement. Discrete used to mean delay 0 for 300ms,
+// which fired once per extra fit frame (the stacked chrome). It now trails
+// 32ms so those frames become one SIGWINCH, still on the same paint.
+const clockB = createClockB({
+  send: (m) => api.termResize(m),
+  now: () => performance.now(),
+  schedule: (ms, fn) => setTimeout(fn, ms),
+  cancel: (h) => clearTimeout(h),
+});
+function ptyDiscrete() { clockB.discrete(); }
+function notifyPty(p, rec) {
+  if (!rec.term) return;
+  clockB.notify(p.id, rec.term.cols, rec.term.rows);
+}
+
+function fitCanvas(rec) {
+  if (!rec || !rec.term || !rec.fit) return;
+  // A hidden terminal measures zero. addon-fit would round that up to its
+  // minimum and resize the pty to a couple of columns — and claude reflows to
+  // whatever it is told, so the session would come back from the card view
+  // wrapped one word per line.
+  //
+  // Left marked rather than dropped, so it is redrawn on the frame it becomes
+  // visible. Dropping it is why a tile came back from a collapse at the size it
+  // held before the expand, and stayed there until something else nudged it.
+  // No frame is scheduled here — the ResizeObserver fires the moment the tile
+  // has a size, and that is what drains this.
+  if (!rec.body.clientWidth || !rec.body.clientHeight) { dirtyFits.add(rec); return; }
+  // One resize from FitAddon's proposal, then at most one overflow clip.
+  // Both happen in this turn; Clock B coalesces them into one pty notify.
+  let dim;
+  try { dim = rec.fit.proposeDimensions(); } catch (_) { return; }
+  if (!dim || isNaN(dim.cols) || isNaN(dim.rows)) return;
+  const term = rec.term;
+  if (term.cols !== dim.cols || term.rows !== dim.rows) {
+    try { term.resize(dim.cols, dim.rows); } catch (_) { return; }
+  }
+  try {
+    const body = rec.body;
+    const screen = body.querySelector('.xterm-screen'); if (!screen) return;
+    const cs = getComputedStyle(body);
+    const limit = body.getBoundingClientRect().right
+      - parseFloat(cs.borderRightWidth || '0') - parseFloat(cs.paddingRight || '0');
+    const sr = screen.getBoundingClientRect();
+    const overflow = sr.right - limit;
+    if (overflow > 0 && term.cols > 20) {
+      const cell = sr.width / term.cols;
+      term.resize(term.cols - Math.ceil(overflow / cell), term.rows);
+    }
+  } catch (_) {}
+}
+
+function mountTerminal(p, rec) {
+  const term = new Terminal({
+    fontFamily: termFontFamily(), fontSize: termFontOf(p), letterSpacing: termLetterSpacing(),
+    // 1.45 rather than 1.35: an agent writes paragraphs, not log lines, and at
+    // 1.35 a long answer reads as one block of grey.
+    lineHeight: 1.45,
+    theme: xtermTheme(), cursorBlink: true, allowTransparency: true, allowProposedApi: true,
+    scrollback: 6000,
+    // Bold is the one weight distinction the stream actually carries — Claude
+    // uses it for headings and emphasis — so let it be properly bold, and let
+    // bold text take the bright half of the palette.
+    fontWeight: 400, fontWeightBold: 700, drawBoldTextInBrightColors: true,
+    minimumContrastRatio: 6,
+    linkHandler: oscLinkHandler(p),
+  });
+  const fit = new FitAddon(); term.loadAddon(fit); rec.body.classList.add('term-body'); term.open(rec.body); rec.term = term; rec.fit = fit;
+  if (S.demo) (window.__terms = window.__terms || []).push(term);
+  requestAnimationFrame(() => {
+    fitCanvas(rec);
+    if (p.sceneStatic) return; // a fixture tile draws, it never runs
+    startProcess(p, term.cols, term.rows);
+  });
+  term.onData((d) => { clearAttention(p); if (p.autoName) feedSessionName(p, d); api.termWrite({ id: p.id, data: d }); });
+  // Clock B, and the only place it is wound. This used to call api.termResize
+  // straight through, which is what made the canvas and the agent one job.
+  term.onResize(() => notifyPty(p, rec));
+  term.onBell(() => setAttention(p));
+  term.onScroll(() => terminalHint.hide(p));
+  registerTerminalLinks(term, p);
+  wireTerminalMenu(p, rec);
+  if (api.platform === 'win32') wireWindowsKeys(term);
+  mountSessionImages(p, rec);
+  // Clock A. No debounce of its own: redrawing the canvas is cheap and wanted on
+  // every frame the tile changes size. The delay that used to live here was
+  // protecting the pty, and the pty has its own settle now — which is also why a
+  // slow window-edge drag no longer looks frozen while you hold it.
+  const ro = new ResizeObserver(() => markFit(rec));
+  ro.observe(rec.body);
+  // a closed tile must not leave the link it was hovering behind in the map
+  rec.disposeRo = () => {
+    clockB.forget(p.id); dirtyFits.delete(rec); ro.disconnect(); hoveredLink.delete(p.id); terminalHint.hide(p);
+    for (const k of panelBases.keys()) if (k.startsWith(p.id + ':')) panelBases.delete(k);
+  };
+}
+
+// A selection is captured before opening a menu or moving keyboard focus.
+function captureFileSelection(p, rec) {
+  const ta = rec.ta;
+  if (ta && ta.getClientRects().length && ta.selectionEnd > ta.selectionStart) {
+    return selectionReference({ path: p.filePath || p.title, source: ta.value, start: ta.selectionStart, end: ta.selectionEnd });
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && rec.body.contains(selection.anchorNode) && rec.body.contains(selection.focusNode)) {
+    return selectionReference({ path: p.filePath || p.title, text: selection.toString() });
+  }
+  return null;
+}
+function wireFileSelection(p, rec) {
+  const bar = document.createElement('div'); bar.className = 'selection-actions'; bar.hidden = true;
+  const button = document.createElement('button'); button.className = 'btn'; bar.appendChild(button); rec.root.appendChild(bar);
+  const update = () => {
+    rec.selection = captureFileSelection(p, rec);
+    bar.hidden = !rec.selection;
+    if (rec.selection) button.textContent = (rec.selection.startLine ? `${rec.selection.endLine - rec.selection.startLine + 1} lines selected · ` : 'Selection · ') + 'Add to session… ' + kb(['⇧', '⌘', '↵'], api.platform);
+  };
+  rec.body.addEventListener('mouseup', update);
+  rec.body.addEventListener('keyup', update);
+  rec.body.addEventListener('select', update, true);
+  button.onmousedown = (e) => e.preventDefault();
+  button.onclick = () => openSelectionDraft(p, rec.selection);
+  rec.body.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+      update(); if (rec.selection) { e.preventDefault(); e.stopPropagation(); openSelectionDraft(p, rec.selection); }
+    }
+  });
+  rec.body.addEventListener('contextmenu', (e) => {
+    const selection = captureFileSelection(p, rec); if (!selection) return;
+    e.preventDefault(); e.stopPropagation();
+    const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+    showMenu(e.clientX, e.clientY, sessions.length ? sessions.map((s) => ({ label: `Send to ${s.title}…`, run: () => openSelectionDraft(p, selection, s.id) })) : [{ label: 'No open session', off: true }]);
+  });
+}
+function openSelectionDraft(p, selection, destination) {
+  if (!selection || !selection.text) return;
+  const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  if (!sessions.length) { toast('Open a session first.'); return; }
+  S.overlay = { type: 'selection-draft', selection, note: '', destination: destination || (sessions.some((s) => s.id === p.owner) ? p.owner : sessions[0].id) };
+  renderOverlay();
+}
+function renderSelectionDraft() {
+  const o = S.overlay;
+  const sessions = S.panels.filter(isSessionPanel).filter((s) => !s.exited);
+  const modal = overlay('modal modal--selection', `<div class="modal-head"><span class="title">Insert selection into session</span></div>
+    <div class="modal-body selection-sheet"><div class="field-label">Sessions</div><div class="selection-recipients">${sessions.map((s) => `<label><input type="checkbox" data-selection-session="${esc(s.id)}"${(o.destinations || [o.destination]).includes(s.id) ? ' checked' : ''}${o.inserted?.includes(s.id) ? ' disabled' : ''}>${esc(s.title)} · ${tileEls.get(s.id)?.aiInput ? 'chat input' : 'terminal input'}${o.inserted?.includes(s.id) ? ' · inserted' : ''}</label>`).join('')}</div>
+    <div class="context-reference">${esc(o.selection.reference)}</div><pre class="selection-preview">${esc(o.selection.text)}</pre>
+    <label>Optional note<textarea id="selection-note" rows="3">${esc(o.note)}</textarea></label></div>
+    <div class="modal-foot"><span class="note">Inserts into the session input without submitting.</span><button class="btn" id="selection-cancel">Cancel</button><button class="btn btn--go" id="selection-add">Insert into session</button></div>`);
+  modal.querySelectorAll('[data-selection-session]').forEach((b) => { b.onchange = () => { o.destinations = [...modal.querySelectorAll('[data-selection-session]:checked')].map((b) => b.dataset.selectionSession); }; });
+  q('#selection-note', modal).oninput = (e) => { o.note = e.target.value; };
+  q('#selection-cancel', modal).onclick = closeOverlay;
+  q('#selection-add', modal).onclick = async () => {
+    q('#selection-add', modal).disabled = true;
+    const text = (o.note ? o.note + '\n\n' : '') + o.selection.reference + '\n\n' + o.selection.text;
+    const ids = (o.destinations || [o.destination]).filter((id) => !o.inserted?.includes(id));
+    if (!ids.length) { toast('Choose a session.'); q('#selection-add', modal).disabled = false; return; }
+    o.inserted ||= [];
+    for (const id of ids) if (await insertSessionText(id, text, { focus: ids.length === 1 })) { o.inserted.push(id); rememberContext(id, { reference: o.selection.reference, text, insertedAt: Date.now() }); }
+    if (ids.every((id) => o.inserted.includes(id))) { o.selection.onInserted?.(); closeOverlay(); } else renderOverlay();
+  };
+  q('#selection-note', modal).focus();
+}
+async function insertSessionText(id, text, { focus = true } = {}) {
+  const p = S.panels.find((s) => s.id === id && isSessionPanel(s) && !s.exited);
+  const rec = p && tileEls.get(id);
+  if (!rec) { toast('That session is no longer available.'); return false; }
+  if (rec.aiInput) {
+    rec.aiInput.value = appendDraft(rec.aiInput.value, text);
+    rec.aiInput.dispatchEvent(new Event('input', { bubbles: true }));
+    if (focus) { focusPanel(id, false, { preserveLayout:true }); if (S.activeId === id) rec.aiInput.focus(); }
+    return true;
+  }
+  if (!rec.term) { toast('That session is no longer available.'); return false; }
+  const data = terminalInsertion(text, rec.term.modes.bracketedPasteMode);
+  if (data === null) { toast('This terminal does not support safe multiline insertion. The selection is kept here.'); return false; }
+  try {
+    const result = await api.termWrite({ id, data });
+    if (!result?.ok) throw new Error('write failed');
+    if (focus) { focusPanel(id, false, { preserveLayout:true }); if (S.activeId === id) { rec.term.scrollToBottom(); rec.term.focus(); } }
+    return true;
+  } catch (_) { toast('Could not insert into that terminal.'); return false; }
+}
+function wireImagePaste(p, rec) {
+  rec.root.addEventListener('paste', (e) => {
+    const files = Array.from(e.clipboardData?.items || []).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault(); e.stopPropagation();
+    rec.pasteQueue = (rec.pasteQueue || Promise.resolve()).then(async () => {
+      for (const file of files) {
+        if (p.exited || !S.panels.includes(p)) { toast('That session is no longer available.'); return; }
+        if ((p.imageAttachments || []).length >= 20) { toast('Hide or remove an image before adding more.'); return; }
+        const dataUrl = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(file); });
+        const saved = await api.savePastedImage(dataUrl);
+        if (!saved || !saved.ok) { toast(saved?.error || 'Could not save the image.'); continue; }
+        if (!S.panels.includes(p)) return;
+        p.imageAttachments = p.imageAttachments || [];
+        if (!p.imageAttachments.some((a) => a.path === saved.path)) {
+          p.imageAttachments.push({ id: uid('image_'), path: saved.path, thumbnail: saved.thumbnail });
+        }
+        await insertSessionText(p.id, shellQuote(saved.path) + ' ');
+        rec.refreshImages(); savePanels();
+      }
+    }).catch(() => toast('Could not paste that image.'));
+  }, true);
+}
+function mountSessionImages(p, rec) {
+  const strip = document.createElement('div');
+  strip.className = 'image-strip session-images'; strip.setAttribute('aria-label', 'Pasted images');
+  rec.root.appendChild(strip);
+  let signature = '';
+  rec.refreshImages = () => {
+    const next = JSON.stringify([!!p.exited, p.imageAttachments || []]);
+    if (next === signature) return;
+    signature = next;
+    strip.innerHTML = '';
+    for (const image of p.imageAttachments || []) {
+      const item = document.createElement('div'); item.className = 'image-attachment';
+      item.innerHTML = `<button class="image-open" title="Open pasted image"><img alt="Pasted image" src="${esc(image.thumbnail)}"></button><button class="image-insert">Insert path</button><button class="image-remove" title="Hide thumbnail; keeps the file and terminal text">Hide</button>`;
+      q('.image-open', item).onclick = () => { focusPanel(p.id); openFile(image.path, { pin: true }); };
+      const insert = q('.image-insert', item); insert.disabled = !!p.exited;
+      insert.onclick = async () => {
+        insert.disabled = true;
+        await insertSessionText(p.id, shellQuote(image.path) + ' ');
+        insert.disabled = !!p.exited;
+      };
+      q('.image-remove', item).onclick = () => {
+        p.imageAttachments = p.imageAttachments.filter((a) => a.id !== image.id);
+        rec.refreshImages(); savePanels();
+      };
+      strip.appendChild(item);
+    }
+    strip.hidden = !strip.childElementCount;
+  };
+  wireImagePaste(p, rec); rec.refreshImages();
+}
+
+// ---- terminal links --------------------------------------------------------
+// Cmd/Ctrl-click anything an agent prints: a URL opens in your browser, a file
+// opens as an editor tile right here, a folder reveals in Finder. Hold Alt and
+// a file reveals in Finder instead of opening.
+//
+// Nothing dead is ever offered: a path is stat'd before it underlines, so the
+// only things that light up are things that actually open.
+const LINK_STAT_TTL = 10000;
+const linkStats = new Map(); // `${id}\0${cwd}\0${token}` -> { at, st }
+// The session id is part of the key, not decoration: two tiles opened on the
+// same folder can be sitting in different directories, and a cache keyed on
+// the frozen cwd alone would hand one tile's answer to the other.
+async function statLink(token, cwd, id) {
+  const key = `${id || ''}\u0000${cwd || ''}\u0000${token}`;
+  const hit = linkStats.get(key);
+  if (hit && Date.now() - hit.at < LINK_STAT_TTL) return hit.st;
+  const st = await api.statPath({ token, cwd, id });
+  // Evict oldest-first rather than wiping: a clear() under pressure meant a
+  // busy screen re-statted everything it had just learned, over and over.
+  // The delete before set matters: Map.set on an existing key keeps its old
+  // position, so without it a hot key refreshed for the tenth time would
+  // still sit at the front of insertion order — first in line to be evicted.
+  if (linkStats.size > 800) {
+    let drop = 200;
+    for (const k of linkStats.keys()) { linkStats.delete(k); if (--drop <= 0) break; }
+  }
+  linkStats.delete(key);
+  linkStats.set(key, { at: Date.now(), st });
+  return st;
+}
+
+// A path long enough to wrap is still one path. Walk the whole wrapped run and
+// keep a cell address per character, so the underline lands on the right cells
+// even when the line holds wide glyphs (a wide char is one string char but two
+// columns, and its second cell reports width 0).
+// A hard wrap is not a wrap: a program that measured the width itself and
+// printed its own newline leaves isWrapped false on both rows, nothing joins
+// them, and scanLinks matches the head of a severed URL as a whole one. The
+// walk goes both ways so hovering either fragment finds the other; see
+// term-wrap.mjs for why the guards are as narrow as they are.
+function wrappedRow(term, y, mode = false) {
+  const buf = term.buffer.active;
+  const cols = term.cols;
+  const { top, bottom, hard } = runBounds(buf, y, cols, mode);
+  let text = ''; const at = [];
+  for (let row = top; row <= bottom; row++) {
+    const line = buf.getLine(row); if (!line) continue;
+    // A joined row's hanging indent is not part of the token, and emitting it
+    // would put a space in the middle of the URL the scanner is about to read.
+    const from = hard.has(row) ? leadingIndent(line, cols) : 0;
+    // Same seam, other side: a loose head broke short of the edge, and its
+    // blank tail would be emitted as spaces between the two halves. A strict
+    // head is full, so trimming it is a no-op.
+    const to = hard.has(row + 1) ? lastCol(line, cols) : term.cols;
+    for (let x = from; x < to; x++) {
+      const cell = line.getCell(x);
+      if (!cell || cell.getWidth() === 0) continue;
+      const ch = cell.getChars() || ' ';
+      for (let i = 0; i < ch.length; i++) at.push({ x: x + 1, y: row + 1 });
+      text += ch;
+    }
+  }
+  // top is handed back for callers that walk the buffer run by run
+  // (collectBases): one call answers both "what does this run say" and
+  // "where does the next one start", instead of a second bounds walk.
+  return { text, at, top, bottom };
+}
+
+function openTermLink(link, st, ev) {
+  if (link.kind === 'url') { api.openUrl(urlTarget(link.text)); return; }
+  if (st && st.isFile && !(ev && ev.altKey)) { if (confirmOutsideOpen(st.abs)) openFile(st.abs); }
+  else if (st) api.revealFile(st.abs);
+}
+
+// What the pointer is over, per tile, so the right-click menu knows what was
+// right-clicked. xterm already does the hit-testing to fire hover/leave;
+// recomputing a cell from mouse coordinates would be a second implementation of
+// it, free to disagree with the one drawing the underline.
+const hoveredLink = new Map();   // panel id -> { link, st }
+
+// The absolute folders recently visible in a card, most recent first — the
+// haystack a missed relative path is retried against (path-bases.mjs has the
+// why). Walked as loose-glued runs so a base that wrapped across rows is
+// seen whole. Cached briefly per panel: the scan is pure string work but a
+// hover storm should not repeat it.
+const panelBases = new Map();   // panel id + region bucket -> { at, mark, bases }
+const BASES_TTL = 5000;
+const BASES_ROWS = 150;
+async function collectBases(term, p, anchorTop) {
+  const buf = term.buffer.active;
+  // Keyed by WHERE the hover is, not just which panel: a scrolled-up hover
+  // must not borrow folders from a later era of the session, and the walk
+  // below anchors at the hovered run for the same reason.
+  const key = p.id + ':' + Math.floor(anchorTop / 50);
+  // Buffer shape as a freshness hint on top of a short TTL. Honest limits:
+  // once the scrollback ring is full, length pins at the cap and the mark
+  // stops moving — the TTL is short precisely because the mark cannot be
+  // trusted to signal in that state.
+  const mark = buf.length + ':' + buf.cursorY;
+  const hit = panelBases.get(key);
+  if (hit && hit.mark === mark && Date.now() - hit.at < BASES_TTL) return hit.bases;
+  const bases = []; const seen = new Set();
+  // Walk UP from the hovered run: the folder a short path is relative to is
+  // named above it — the user's prompt, the sweep header — not at the
+  // bottom of the scrollback.
+  let y = Math.min(anchorTop + 1, buf.length), walked = 0;
+  while (y >= 1 && walked < BASES_ROWS && bases.length < 6) {
+    const run = wrappedRow(term, y, true);
+    // No slash, no folder — skip the scan without paying for it.
+    if (hasSeparator(run.text)) {
+      for (const b of basesFromText(run.text, 6)) {
+        if (seen.has(b)) continue;
+        seen.add(b);
+        // The glue that produced this text was loose and unverified, so the
+        // disk vets every base: prose fused onto a path ("…/shotsand") is
+        // no folder, and garbage must not burn slots in the pool.
+        const st = await statLink(b, p.cwd, p.id);
+        if (st && st.exists && !st.isFile) bases.push(b);
+        if (bases.length >= 6) break;
+      }
+    }
+    walked += y - run.top;   // y is 1-based, top 0-based: exactly the run's rows
+    y = run.top;             // the row just above the run
+  }
+  if (panelBases.size > 400) {
+    let drop = 100;
+    for (const k of panelBases.keys()) { panelBases.delete(k); if (--drop <= 0) break; }
+  }
+  panelBases.set(key, { at: Date.now(), mark, bases });
+  return bases;
+}
+
+// Two cells in reading order, ranges inclusive on both ends the way xterm
+// hands them out.
+function cellBefore(a, b) { return a.y < b.y || (a.y === b.y && a.x < b.x); }
+function rangesTouch(a, b) {
+  return !(cellBefore(a.end, b.start) || cellBefore(b.end, a.start));
+}
+
+function registerTerminalLinks(term, p) {
+  if (!term.registerLinkProvider) return;
+
+  const build = (rows, at) => {
+    const links = [];
+    for (const row of rows) {
+      if (!row) continue;
+      const start = at[row.link.start], end = at[row.link.end - 1];
+      if (!start || !end) continue;
+      const live = row.link.kind === 'url' || !!row.st;
+      links.push({
+        text: row.link.text,
+        range: { start, end },
+        // Without this xterm decorates nothing: a path that opens on
+        // ⌘-click looked exactly like a path that does not, and the only
+        // way to find out was to try. Now the cursor and the underline say
+        // so before you commit to the click. Dead paths stay bare — the
+        // underline has to keep meaning "this opens".
+        decorations: live ? { pointerCursor: true, underline: true } : { pointerCursor: false, underline: false },
+        activate: (ev) => { if (live && (ev.metaKey || ev.ctrlKey)) openTermLink(row.link, row.st, ev); },
+        hover: (ev) => {
+          hoveredLink.set(p.id, { link: row.link, st: row.st, live });
+          if (!S.overlay && !q('#ctx-menu')) terminalHint.show({ kind: row.link.kind, st: row.st }, ev, p);
+        },
+        // Only clear if this link is still the one recorded. Moving from
+        // one link straight onto the next fires the new hover before the
+        // old leave, and an unconditional delete would throw away the link
+        // the pointer is actually on.
+        leave: () => {
+          const cur = hoveredLink.get(p.id);
+          if (cur && cur.link === row.link) { hoveredLink.delete(p.id); terminalHint.hide(p); }
+        },
+      });
+    }
+    return links;
+  };
+
+  const resolveLinks = async (y) => {
+    const strict = wrappedRow(term, y);
+    const found = strict.text ? scanLinks(strict.text) : [];
+    const rows = await Promise.all(found.map(async (link) => {
+      if (link.kind === 'url') return { link, st: null };
+      const st = await statLink(link.text, p.cwd, p.id);
+      // A missed stat is handed over rather than dropped. Undecorated and
+      // inert, it looks and behaves exactly as it does now — but xterm knows
+      // it is there, which is what gives it a right-click. Copying does not
+      // need the file to exist, and gating the menu on the stat would hide it
+      // in the one case it exists for.
+      return { link, st: st && st.exists ? st : null };
+    }));
+
+    // Where a token sits in its run: against the leading blank edge, the
+    // trailing one, both, or neither. Computed once per token — the base
+    // retry and the growth pass below both read it.
+    const edgesOf = (l) => ({
+      start: !strict.text.slice(0, l.start).trim(),
+      end: !strict.text.slice(l.end).trim(),
+    });
+
+    // A relative path that missed the card's folder gets a second chance
+    // against the folders on screen — cwd first (it already ran, above),
+    // scavenged bases after, first hit wins, disk arbitrates. Every relative
+    // miss qualifies: a CLI listing files "one per line" puts each path
+    // alone on its row, which is the shape this exists for. A miss on every
+    // base leaves the row exactly as it was. Misses run concurrently;
+    // within one miss the bases stay ordered, most recent folder first.
+    const relMisses = rows.filter((r) => r.link.kind === 'path' && !r.st
+      && !isAbsolute(r.link.text) && r.link.text[0] !== '~');
+    if (relMisses.length) {
+      const bases = await collectBases(term, p, strict.top);
+      await Promise.all(relMisses.slice(0, 12).map(async (r) => {
+        for (const b of bases) {
+          const joined = joinBase(b, r.link.text);
+          if (!joined) return;   // a shape joinBase refuses is refused for every base
+          const st = await statLink(joined, p.cwd, p.id);
+          if (st && st.exists) { r.st = st; return; }
+        }
+      }));
+    }
+    let links = build(rows, strict.at);
+
+    // The loose reglue: a path severed by an early break under a hanging
+    // indent (Claude's tool results). Runs when a path is still missing OR
+    // the strict scan found nothing at all — the hovered row may be a bare
+    // continuation fragment ("er/scene.png", or even just "me") that scans
+    // as nothing, and the glued run is where the whole path appears. A
+    // candidate becomes a link only if it exists on disk.
+    let looseLinks = [];
+    if (rows.some((r) => r.link.kind === 'path' && !r.st) || !found.length) {
+      const loose = wrappedRow(term, y, true);
+      if (loose.text !== strict.text) {
+        const candidates = scanLinks(loose.text).filter((l) => l.kind === 'path');
+        const confirmed = (await Promise.all(candidates.map(async (link) => {
+          const st = await statLink(link.text, p.cwd, p.id);
+          return st && st.exists ? { link, st } : null;
+        }))).filter(Boolean);
+        if (confirmed.length) {
+          looseLinks = build(confirmed, loose.at);
+          links = looseLinks.concat(links.filter((l) => !looseLinks.some((w) => rangesTouch(w.range, l.range))));
+        }
+      }
+    }
+
+    // The anchored growth: a still-missing token touching the run's edge may
+    // be a fragment of a column-0 wrap — codex, antigravity and opencode
+    // break at their own inner width and continue flush left. Column 0 must
+    // not JOIN as a mode (adjacent paths in a list would merge into one dead
+    // token), so the extension anchors on the failing token: grow it a row
+    // at a time in the direction it touches, and believe the shortest grown
+    // path the disk confirms. One geometric guard survives from the join
+    // modes: a row only counts as CUT if it is filled past two thirds of the
+    // width — "mv src/app" alone on a wide row was a chosen break, and
+    // growing it would let a lucky disk hit mint a link out of prose.
+    const buf0 = term.buffer.active;
+    const cut = (row) => {
+      const l = buf0.getLine(row);
+      // Two thirds of the CURRENT width, capped at 60: hard-wrapped rows
+      // keep their printed width when a tile is widened (xterm reflows only
+      // soft wraps), and an emitter wrapping an inner column narrower than
+      // the tile is still a real cut. 60 columns of unbroken path-like text
+      // ending mid-token is evidence enough at any tile size.
+      return !!l && lastCol(l, term.cols) >= Math.min(Math.floor((term.cols * 2) / 3), 60);
+    };
+    const fragMisses = rows.filter((r) => {
+      if (r.link.kind !== 'path' || r.st) return false;
+      const e = edgesOf(r.link);
+      return e.start || e.end;
+    }).slice(0, 4);
+    if (fragMisses.length) {
+      // A fragment for growing downward is a row's leading unbroken run; one
+      // for growing upward is its trailing run. `whole` says the run WAS the
+      // whole row — a row that also carried an annotation ends the path, so
+      // growth stops after taking its piece.
+      const downFrag = (row) => {
+        const piece = rowPiece(buf0.getLine(row), term.cols); if (!piece) return null;
+        const cutAt = piece.text.search(/\s/);
+        const text = cutAt === -1 ? piece.text : piece.text.slice(0, cutAt);
+        if (!text) return null;
+        return { text, endCell: { x: piece.at[text.length - 1] + 1, y: row + 1 }, whole: cutAt === -1 };
+      };
+      const upFrag = (row) => {
+        const piece = rowPiece(buf0.getLine(row), term.cols); if (!piece) return null;
+        const m = piece.text.match(/\S+$/); if (!m) return null;
+        const off = piece.text.length - m[0].length;
+        return { text: m[0], startCell: { x: piece.at[off] + 1, y: row + 1 }, whole: off === 0 };
+      };
+      const extras = [];
+      for (const r of fragMisses) {
+        const tokenStart = strict.at[r.link.start], tokenEnd = strict.at[r.link.end - 1];
+        if (!tokenStart || !tokenEnd) continue;
+        // Already healed by the loose reglue: nothing left to grow.
+        if (looseLinks.some((w) => rangesTouch(w.range, { start: tokenStart, end: tokenEnd }))) continue;
+        const e = edgesOf(r.link);
+        const downs = []; const ups = [];
+        if (e.end && cut(strict.bottom)) {
+          let acc = '';
+          for (let k = 1; k <= MAX_JOINS; k++) {
+            const f = downFrag(strict.bottom + k); if (!f) break;
+            acc += f.text; downs.push({ text: acc, endCell: f.endCell, rows: k });
+            // The path continues past this row only if the row held nothing
+            // else AND was itself cut at the width.
+            if (!f.whole || !cut(strict.bottom + k)) break;
+          }
+        }
+        if (e.start) {
+          let acc = '';
+          for (let k = 1; k <= MAX_JOINS; k++) {
+            // The row being consumed continues INTO the line below it, so it
+            // must itself be cut — a short row above ended its own thought.
+            if (!cut(strict.top - k)) break;
+            const f = upFrag(strict.top - k); if (!f) break;
+            acc = f.text + acc; ups.push({ text: acc, startCell: f.startCell, rows: k });
+            if (!f.whole) break;
+          }
+        }
+        const cands = [];
+        for (const d of downs) cands.push({ text: r.link.text + d.text, start: tokenStart, end: d.endCell, rows: d.rows });
+        for (const u of ups) cands.push({ text: u.text + r.link.text, start: u.startCell, end: tokenEnd, rows: u.rows });
+        for (const u of ups) for (const d of downs) {
+          if (u.rows + d.rows > MAX_JOINS) continue;
+          cands.push({ text: u.text + r.link.text + d.text, start: u.startCell, end: d.endCell, rows: u.rows + d.rows });
+        }
+        cands.sort((a, b) => a.rows - b.rows);
+        // Shortest first, stop at the first hit — the sort exists so the
+        // common one-row severance costs one stat, not a volley.
+        for (const c of cands) {
+          const st = await statLink(c.text, p.cwd, p.id);
+          if (!(st && st.exists)) continue;
+          const at = new Array(c.text.length);
+          at[0] = c.start; at[c.text.length - 1] = c.end;
+          extras.push(...build([{ link: { kind: 'path', text: c.text, start: 0, end: c.text.length }, st }], at));
+          break;
+        }
+      }
+      if (extras.length) {
+        links = extras.concat(links.filter((l) => !extras.some((w) => rangesTouch(w.range, l.range))));
+      }
+    }
+    return links;
+  };
+
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      resolveLinks(y)
+        .then((links) => callback(links.length ? links : undefined))
+        .catch(() => callback(undefined));
+    },
+  });
+}
+
+// Right-click a link in a session. Away from one this does nothing and the
+// terminal keeps whatever behaviour it had — this is a link menu, not a
+// terminal menu, and copying arbitrary text is what selection is for.
+// Copy and paste the way Windows Terminal does them (term-keys.mjs has the
+// rule and the reasons). xterm asks this before it handles a key; false means
+// "not yours".
+//
+// Copy is done here, by hand, and the key is swallowed. Paste is the opposite:
+// the key is left completely alone, so that Chromium performs its own paste
+// into xterm's textarea. That fires a real paste event, which is what xterm
+// wraps in bracketed-paste markers and what wireImagePaste reads a screenshot
+// out of — a clipboard read of our own would carry text and nothing else.
+//
+// 'app' is one of Nami's own chords — Ctrl+Shift+T, Ctrl+Shift+K and the rest.
+// xterm is told it is not a terminal key, and nothing is cancelled: a cancelled
+// keydown stops here, and this one has to travel on up to onGlobalKey, or to
+// the menu's accelerator for the ones that live only there.
+function wireWindowsKeys(term) {
+  term.attachCustomKeyEventHandler((e) => {
+    const action = termKeyAction(e, { platform: api.platform, hasSelection: term.hasSelection() });
+    if (!action) return true;
+    if (action === 'app') return false;
+    if (action !== 'paste') e.preventDefault();
+    if (e.type !== 'keydown') return false;
+    if (action === 'copy') {
+      const picked = term.getSelection();
+      // Cleared, so the next Ctrl+C is an interrupt again rather than a
+      // second copy of something you have already taken.
+      if (picked) { api.copyText(picked); term.clearSelection(); }
+    } else if (action === 'select-all') term.selectAll();
+    return false;
+  });
+}
+
+function wireTerminalMenu(p, rec) {
+  rec.body.addEventListener('contextmenu', (e) => {
+    const picked = rec.term?.getSelection();
+    if (picked?.trim()) { e.preventDefault(); showMenu(e.clientX, e.clientY, [{ label: 'Add selection to session…', run: () => openSelectionDraft({ owner: p.id }, { reference: p.title + ' (terminal excerpt)', text: picked }) }, { label: 'Copy selection', run: () => copyLinkText(picked) }]); return; }
+    const hit = hoveredLink.get(p.id);
+    if (!hit) return;
+    e.preventDefault();
+    const items = termMenuItems({ kind: hit.link.kind, text: hit.link.text, st: hit.st }).map((it) => {
+      if (it === '-' || it.off) return it;
+      if (it.copy != null) return { ...it, run: () => copyLinkText(it.copy) };
+      // Reveal is the alt route openTermLink already understands; naming it
+      // here keeps the menu and the modifier on one implementation.
+      return { ...it, run: () => openTermLink(hit.link, hit.st, { altKey: it.label === W.reveal }) };
+    });
+    if (hit.link.kind === 'url') items.unshift({ label: 'Open in Bond browser', run: () => { browsers.open(urlTarget(hit.link.text), null, p.id); setView('split'); } });
+    showMenu(e.clientX, e.clientY, items);
+  });
+}
+
+async function copyLinkText(text) {
+  try { await api.copyText(text); toast('Copied ' + shorten(text, 44) + '.'); }
+  catch (_) { toast('Could not copy that.'); }
+}
+
+// OSC 8 hyperlinks (a CLI marking its own text as a link) come through xterm's
+// own provider. Claiming the handler matters: xterm's default pops a blocking
+// confirm() and a bare window.open, which in Electron is a dead-end window.
+function oscLinkHandler(p) {
+  let hover = null;
+  return {
+    hover: async (ev, uri) => {
+      terminalHint.hide(p);
+      const revision = terminalHint.revision;
+      const marker = {};
+      hover = marker;
+      let hit;
+      if (/^https?:\/\//i.test(uri)) {
+        hit = { link: { kind: 'url', text: uri }, st: null, live: true };
+      } else if (/^file:\/\//i.test(uri)) {
+        let path = uri.replace(/^file:\/\/(localhost)?/i, '');
+        try { path = decodeURIComponent(path); } catch (_) {}
+        let st;
+        try { st = await api.statPath({ token: path, cwd: p.cwd, id: p.id }); } catch (_) { return; }
+        hit = { link: { kind: 'path', text: path }, st, live: !!st && st.exists };
+      }
+      if (!hit || hover !== marker || terminalHint.revision !== revision || !tileEls.has(p.id) || S.overlay || q('#ctx-menu')) return;
+      marker.hit = hit;
+      hoveredLink.set(p.id, hit);
+      terminalHint.show({ kind: hit.link.kind, st: hit.st }, ev, p);
+    },
+    leave: () => {
+      if (hover && hoveredLink.get(p.id) === hover.hit) { hoveredLink.delete(p.id); terminalHint.hide(p); }
+      hover = null;
+    },
+    activate: async (ev, uri) => {
+      if (!(ev.metaKey || ev.ctrlKey)) return;
+      if (/^https?:\/\//i.test(uri)) { api.openUrl(uri); return; }
+      if (!/^file:\/\//i.test(uri)) return;
+      let abs = uri.replace(/^file:\/\/(localhost)?/i, '');
+      try { abs = decodeURIComponent(abs); } catch (_) {}
+      const st = await api.statPath({ token: abs, cwd: p.cwd, id: p.id });
+      if (!st.exists) { toast('Not found: ' + abs); return; }
+      openTermLink({ kind: 'path', text: abs }, st, ev);
+    },
+  };
+}
+async function startProcess(p, cols, rows) {
+  if (p.started) return; p.started = true;
+  // A name nami chose deliberately rides down into claude, so the conversation
+  // reads the same from every other surface that lists it.
+  const name = shouldPushName(p.titleSource) ? p.title : null;
+  const made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
+  // Windows only: an agent that npm installed is a .cmd file, and a first
+  // message cannot be handed to one safely (src/main/cmd-shim.js). Rather than
+  // let it vanish, it goes on the clipboard, one paste away from where it was
+  // meant to land.
+  if (made && made.seedHeld && p.seed) {
+    try { await api.copyText(p.seed); toast('First message copied — paste it in when the agent is ready.'); } catch (_) {}
+  }
+}
+function setAttention(p) { if (p.id === S.activeId) return; p.attention = true; refreshTileHead(p); refreshRail(); renderHeader(); }
+function clearAttention(p) { if (!p.attention) return; p.attention = false; refreshTileHead(p); refreshRail(); renderHeader(); }
+
+// ---- links inside a rendered doc -------------------------------------------
+// The same three destinations as a terminal link — browser, here, Finder —
+// plus headings, which stay inside the doc. An href the resolver does not
+// recognise does nothing at all: rendered markdown never drives navigation.
+function headingSlug(s) {
+  return String(s || '').trim().toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+}
+async function openDocLink(href, p, read) {
+  const t = docHrefTarget(href, p.filePath);
+  if (t.kind === 'url') { api.openUrl(t.target); return; }
+  if (t.kind === 'anchor') {
+    const want = t.target.toLowerCase();
+    const head = Array.from(read.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+      .find((h) => headingSlug(h.textContent) === want);
+    if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  if (t.kind !== 'path') return;
+  const st = await api.statPath({ token: t.target, cwd: p.cwd, id: p.id });
+  if (!st.exists) { toast('Not found: ' + shortHome(t.target)); return; }
+  if (st.isFile) { if (confirmOutsideOpen(st.abs)) openFile(st.abs); }
+  else api.revealFile(st.abs);
+}
+
+// Mirror the Edit tab's dragged column widths into a rendered Read pane.
+// Widths are keyed by table order and never serialized — GFM has nowhere to
+// put them — so this is session state following the reader across tabs.
+function applyDocColWidths(read, colWidths) {
+  if (!colWidths) return;
+  const tables = read.querySelectorAll('.md-tablewrap > table');
+  tables.forEach((table, index) => {
+    const widths = colWidths[index];
+    const row = table.rows[0];
+    if (!Array.isArray(widths) || !row || row.cells.length !== widths.length) return;
+    const colgroup = document.createElement('colgroup');
+    widths.forEach((w) => {
+      const col = document.createElement('col');
+      if (w) col.style.width = w + 'px';
+      colgroup.appendChild(col);
+    });
+    table.insertBefore(colgroup, table.firstChild);
+    table.style.tableLayout = 'fixed';
+    table.style.width = widths.reduce((sum, w) => sum + (w || 0), 0) + 'px';
+  });
+}
+
+function browserPanelFor(filePath) {
+  const peek = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (peek && peek.filePath === filePath) return peek;
+  return S.panels.find((p) => p.filePath === filePath) || null;
+}
+function browserButtonLabel(button, p) {
+  if (!button) return;
+  button.innerHTML = p && p.dirty ? 'Save &amp; open in Chrome ↗' : 'Open in Chrome ↗';
+  button.title = p && p.dirty
+    ? 'Save this page, then open it in Chrome'
+    : 'Open this saved page in Chrome';
+}
+function bindBrowserButton(button, p) {
+  if (!button) return;
+  button._browserPanel = p;
+  browserButtonLabel(button, p);
+  button.onclick = () => openOutside(p);
+}
+function refreshBrowserButtons(p) {
+  document.querySelectorAll('.pk-browser, .ed-browser').forEach((button) => {
+    if (button._browserPanel === p) browserButtonLabel(button, p);
+  });
+}
+async function openFileInBrowser(filePath, panel) {
+  const p = panel || browserPanelFor(filePath);
+  if (p && p.dirty) {
+    const saved = await saveEditor(p);
+    if (!saved) return;
+  }
+  closeOverlay();
+  browsers.open('about:blank', filePath, p?.owner);
+  setView('split');
+}
+
+// ---- editor tiles ----------------------------------------------------------
+function mountEditor(p, rec) {
+  // Markdown and html open rendered; everything else has nothing to render, so
+  // it opens straight in the editor and never shows the Read tab.
+  const md = isMarkdownPath(p.filePath);
+  const rich = richMarkdownPath(p.filePath);
+  const html = fileKind(p.filePath) === 'html';
+  const rendered = md || html;
+  if (!rendered) p.edMode = 'edit';
+  else if (rich && !['read', 'edit', 'markdown'].includes(p.edMode)) p.edMode = 'read';
+  else if (!rich && p.edMode !== 'edit') p.edMode = 'read';
+
+  const wrap = document.createElement('div'); wrap.className = 'editor';
+  const tabs = rich
+    ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button><button class="card-tab ed-tab" data-m="markdown">Markdown</button></div>`
+    : rendered ? `<div class="ed-tabs card-tabs"><button class="card-tab ed-tab" data-m="read">Read</button><button class="card-tab ed-tab" data-m="edit">Edit</button></div>` : '';
+  // The changed-on-disk bar sits above the tabs, between the tile's head and
+  // the document, because it is about the whole file rather than about the
+  // pane you happen to be looking at. It only ever appears over unsaved edits:
+  // a clean panel merges without a word.
+  wrap.innerHTML = `<div class="disk-bar" hidden>
+      <span class="dk-msg">Changed on disk</span>
+      <span class="dk-acts"><button class="btn dk-reload">Reload</button><button class="btn dk-keep">Keep mine</button></span>
+    </div>
+    ${tabs}
+    <div class="ed-read md-read"></div>
+    ${rich ? `<div class="ed-rich"><div class="ed-fm"></div><div class="ed-rich-doc"><div class="ed-rich-loading">Open Edit to load the block editor.</div></div></div>` : ''}
+    <div class="ed-pane"><div class="ed-gutter"></div>
+      <div class="ed-stack"><pre class="ed-hl" aria-hidden="true"></pre><pre class="ed-measure" aria-hidden="true"></pre><textarea class="ed-area" spellcheck="false"></textarea></div></div>
+    <div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span>${html && !rec.peek ? '<button class="btn ed-browser"></button>' : ''}<button class="btn ed-finder">${W.finderShort}</button><button class="btn btn--go ed-save">Save<span class="kb"> ${kbd('save')}</span></button></div>`;
+  wrap.classList.toggle('editor--md', md);
+  wrap.classList.toggle('editor--rich', rich);
+  wrap.classList.toggle('editor--html', html);
+  rec.body.appendChild(wrap);
+
+  const ta = q('.ed-area', wrap), gutter = q('.ed-gutter', wrap);
+  const hl = q('.ed-hl', wrap), read = q('.ed-read', wrap);
+  const measure = q('.ed-measure', wrap);
+  // Milkdown owns this node's children (it wipes innerHTML on load), so the
+  // properties strip lives beside it, not inside it — both scroll together
+  // because .ed-rich is the scroller.
+  const richDoc = q('.ed-rich-doc', wrap);
+  rec.ta = ta; rec.gutter = gutter;
+  ta.value = p.text || '';
+  let richEditor = null;
+  let richLoading = null;
+  let richStale = false;
+  let disposed = false;
+
+  const markDirty = () => {
+    if (p.dirty) return;
+    p.dirty = true; keepFile(p); refreshTileHead(p); refreshRail(); refreshBrowserButtons(p); // an edit keeps a preview
+  };
+  const resolveImage = (src) => markdownImageUrl(p.filePath, src) || src;
+  // Frontmatter never enters the block editor: Milkdown reads `---` as a
+  // horizontal rule and rewrites the YAML as prose, which silently destroys
+  // `type:`/`tags:` on the first save. The properties strip edits it in
+  // place, so the fence is read fresh on every use — a captured copy would
+  // let a body edit resurrect a value the strip had already changed.
+  const currentFm = () => {
+    const m = String(p.text || '').match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
+    return m ? m[0] : '';
+  };
+  const richBody = () => String(p.text || '').slice(currentFm().length);
+
+  // ---- the properties strip -------------------------------------------------
+  // Obsidian-style frontmatter editing above the document. Field types are
+  // inferred from the value, never configured; anything the form cannot
+  // represent shows locked and is written back byte-for-byte (frontmatter.mjs
+  // keeps that contract). Every edit rewrites only its own lines in p.text.
+  const fmRoot = q('.ed-fm', wrap);
+  let fmDraft = null;                 // {key, val} while a property is being born
+  // Closed by default: a document opens as a document, not as a form. The
+  // choice sticks to the panel, so reopening the same file keeps it.
+  if (p.fmOpen == null) p.fmOpen = false;
+  const fmWrite = (mutate) => {
+    const doc = parseDoc(p.text || '');
+    if (doc.malformed) return;
+    mutate(doc);
+    const next = serializeDoc(doc);
+    if (next !== p.text) { p.text = next; ta.value = next; markDirty(); sync(); }
+    renderFmStrip();
+  };
+  const fmKind = (doc, e) => {
+    if (!e.key) return { kind: 'opaque' };
+    if (e.complex) {
+      const items = listItems(doc, e.key);
+      return items ? { kind: 'tags', items } : { kind: 'locked' };
+    }
+    const v = getField(doc, e.key);
+    if (v === 'true' || v === 'false') return { kind: 'check', v };
+    if (/^-?\d+(\.\d+)?$/.test(v)) return { kind: 'number', v };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { kind: 'date', v };
+    return { kind: 'text', v };
+  };
+  function renderFmStrip() {
+    if (!fmRoot || !editsAsFrontmatter(p.filePath)) return;
+    const doc = parseDoc(p.text || '');
+    const hint = '<span class="fmp-slim-hint">/ for blocks · select text to format</span>';
+    if (doc.malformed) {
+      fmRoot.innerHTML = `<div class="fmp-broken">Frontmatter looks malformed — fix it in the Markdown tab.</div><div class="fmp-slim fmp-slim--bare">${hint}</div>`;
+      return;
+    }
+    // Collapsed: one slim row previewing the keys, with the block-editor hint
+    // on its right end. It scrolls away with the document — the form only
+    // takes space while you are actually editing properties.
+    if (!fmDraft && (!p.fmOpen || !doc.hasFrontmatter)) {
+      p.fmOpen = false;
+      const keys = doc.entries.map((e) => e.key).filter(Boolean).join(' · ');
+      fmRoot.innerHTML = `<div class="fmp-slim"><span class="fmp-arr">▸</span> properties${keys ? `<span class="fmp-keys">${esc(keys)}</span>` : ''}${hint}</div>`;
+      q('.fmp-slim', fmRoot).onclick = (ev) => {
+        // the hint is an editor tip riding on the row's right end, not a
+        // properties control — a click on it should do nothing
+        if (ev.target.closest('.fmp-slim-hint')) return;
+        p.fmOpen = true;
+        if (!doc.hasFrontmatter) fmDraft = { key: '', val: '' };
+        renderFmStrip();
+        q('.fmp-dk', fmRoot)?.focus();
+      };
+      return;
+    }
+    const rows = doc.entries.map((e, i) => {
+      const t = fmKind(doc, e);
+      let control = '';
+      if (t.kind === 'opaque' || t.kind === 'locked') {
+        const preview = t.kind === 'opaque' ? e.lines.join(' ') : e.lines.slice(1).map((l) => l.trim()).join(' · ');
+        return `<div class="fmp-row fmp-lockrow"><span class="fmp-key">${esc(e.key || '')}</span>
+          <span class="fmp-locked" title="Kept exactly as written — edit in the Markdown tab">🔒 <span class="fmp-pad">${esc(preview)}</span></span></div>`;
+      }
+      if (t.kind === 'tags') {
+        control = `<span class="fmp-chips" data-key="${esc(e.key)}">` + t.items.map((item, k) =>
+          `<span class="fmp-chip">${esc(item)}<button data-k="${k}" title="Remove">×</button></span>`).join('') +
+          `<input placeholder="+ tag, Enter"></span>`;
+      } else if (t.kind === 'check') {
+        control = `<label class="fmp-check"><input type="checkbox" data-key="${esc(e.key)}"${t.v === 'true' ? ' checked' : ''}> ${t.v === 'true' ? 'yes' : 'no'}</label>`;
+      } else {
+        const type = t.kind === 'number' ? 'number' : t.kind === 'date' ? 'date' : 'text';
+        control = `<input type="${type}" data-key="${esc(e.key)}" value="${esc(t.v)}" placeholder="empty — click to fill">`;
+      }
+      return `<div class="fmp-row" data-row="${esc(e.key)}"><span class="fmp-key">${esc(e.key)}</span>
+        <span class="fmp-val">${control}</span><button class="fmp-rm" data-key="${esc(e.key)}" title="Remove property">✕</button></div>`;
+    }).join('');
+    const draft = fmDraft ? `<div class="fmp-row fmp-draft">
+        <span class="fmp-key"><input class="fmp-dk" placeholder="name" value="${esc(fmDraft.key)}"></span>
+        <span class="fmp-val"><input class="fmp-dv" placeholder="value (can be empty)" value="${esc(fmDraft.val)}"></span>
+        <span class="fmp-hint">Enter saves · Esc cancels</span></div>` : '';
+    fmRoot.innerHTML = `<div class="fmp">
+      <div class="fmp-head"><span class="fmp-arr">▾</span> Properties<span class="fmp-count">${doc.entries.length} field${doc.entries.length === 1 ? '' : 's'}</span></div>
+      <div class="fmp-body">${rows}${draft}${fmDraft ? '' : '<button class="fmp-add">+ add property</button>'}</div></div>`;
+
+    q('.fmp-head', fmRoot).onclick = () => { p.fmOpen = false; fmDraft = null; renderFmStrip(); };
+    fmRoot.querySelectorAll('input[data-key]:not([type="checkbox"])').forEach((el) => {
+      el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.value.trim())));
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.blur(); });
+    });
+    fmRoot.querySelectorAll('.fmp-check input').forEach((el) => {
+      el.addEventListener('change', () => fmWrite((doc2) => setField(doc2, el.dataset.key, el.checked ? 'true' : 'false')));
+    });
+    fmRoot.querySelectorAll('.fmp-chips').forEach((chips) => {
+      const key = chips.dataset.key;
+      chips.querySelectorAll('.fmp-chip button').forEach((btn) => {
+        btn.addEventListener('click', () => fmWrite((doc2) => {
+          const items = listItems(doc2, key) || [];
+          items.splice(Number(btn.dataset.k), 1);
+          setListField(doc2, key, items);
+        }));
+      });
+      const inp = chips.querySelector(':scope > input');
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' || !inp.value.trim()) return;
+        const item = inp.value.trim();
+        fmWrite((doc2) => setListField(doc2, key, [...(listItems(doc2, key) || []), item]));
+      });
+    });
+    fmRoot.querySelectorAll('.fmp-rm').forEach((btn) => {
+      btn.addEventListener('click', () => fmWrite((doc2) => removeField(doc2, btn.dataset.key)));
+    });
+    const add = q('.fmp-add', fmRoot);
+    if (add) add.onclick = () => { fmDraft = { key: '', val: '' }; renderFmStrip(); q('.fmp-dk', fmRoot)?.focus(); };
+    const dk = q('.fmp-dk', fmRoot), dv = q('.fmp-dv', fmRoot);
+    if (dk && dv) {
+      const save = () => {
+        // repair the key rather than reject it: spaces become _, the rest drops
+        const key = dk.value.trim().replace(/\s+/g, '_').replace(/[^\w-]/g, '');
+        if (!key) { toast('Give it a name first — e.g. freebie_url'); dk.focus(); return; }
+        const doc2 = parseDoc(p.text || '');
+        if (doc2.entries.some((x) => x.key === key)) {
+          fmDraft = null; renderFmStrip();
+          const row = fmRoot.querySelector(`[data-row="${CSS.escape(key)}"]`);
+          if (row) { row.classList.add('fmp-flash'); row.querySelector('input,select')?.focus(); }
+          toast(key + ' already exists — jumped you to it');
+          return;
+        }
+        const value = dv.value.trim();
+        fmDraft = null;
+        fmWrite((doc3) => setField(doc3, key, value));
+      };
+      [dk, dv].forEach((el) => {
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); fmDraft = null; renderFmStrip(); }
+        });
+        el.addEventListener('input', () => { fmDraft = { key: dk.value, val: dv.value }; });
+      });
+    }
+  }
+  const ensureRichEditor = async () => {
+    if (!rich || disposed) return null;
+    if (richEditor) {
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
+      return richEditor;
+    }
+    if (richLoading) return richLoading;
+    richDoc.innerHTML = '<div class="ed-rich-loading">Loading the block editor…</div>';
+    richLoading = mountMarkdownEditor(richDoc, richBody(), {
+      resolveImage,
+      // Session-only: GFM cannot store a column width, so dragged widths live
+      // on the card and follow the document into the Read pane, nothing more.
+      columnWidths: p.mdColWidths || (p.mdColWidths = {}),
+      onColumnWidths: (index, widths) => { p.mdColWidths[index] = widths; },
+      onCopyLink: (link) => api.copyText(link),
+      onFocus: () => { S.activeId = p.id; refreshRail(); },
+      onChange: (next) => {
+        const whole = currentFm() + next;
+        if (disposed || whole === p.text) return;
+        p.text = whole; ta.value = whole; markDirty(); sync();
+      },
+    }).then((editor) => {
+      if (disposed) { editor.destroy(); return null; }
+      richEditor = editor; richLoading = null;
+      const loading = q('.ed-rich-loading', richDoc); if (loading) loading.remove();
+      if (richStale) { richEditor.setMarkdown(richBody()); richStale = false; }
+      return editor;
+    }).catch((error) => {
+      richLoading = null;
+      richDoc.innerHTML = `<div class="ed-rich-error">The block editor could not open. Markdown mode still works.<small>${esc(error && error.message || error)}</small></div>`;
+      return null;
+    });
+    return richLoading;
+  };
+  rec.disposeEditor = () => {
+    disposed = true;
+    edRo.disconnect();
+    if (richEditor) richEditor.destroy();
+    richEditor = null;
+  };
+
+  // ---- following the file on disk -------------------------------------------
+  // A rewrite lands here rather than through a close-and-reopen, so the panel
+  // keeps its scroll, its undo stack, and — as far as one splice can promise —
+  // its caret. Only ever reached for a clean panel, or for one whose owner
+  // pressed Reload; a dirty panel raises the bar instead and is never
+  // overwritten without being asked.
+  const diskBar = q('.disk-bar', wrap);
+  const hideDiskBar = () => { p.diskText = null; if (diskBar) diskBar.hidden = true; };
+  rec.raiseDiskBar = (next) => {
+    p.diskText = next;
+    if (diskBar) diskBar.hidden = false;
+  };
+  if (p.diskText != null && diskBar) diskBar.hidden = false;   // survives a re-mount
+  rec.reloadFromDisk = (next) => {
+    if (disposed || typeof next !== 'string') return;
+    const range = changeRange(ta.value, next);
+    const focused = document.activeElement === ta;
+    const selStart = ta.selectionStart, selEnd = ta.selectionEnd;
+    const top = ta.scrollTop;
+    p.text = next;
+    p.lastHash = hashText(next);
+    ta.value = next;
+    // Offsets move with the splice, so text arriving further down the file
+    // leaves the caret exactly where it was sitting.
+    if (focused) { ta.selectionStart = shiftOffset(selStart, range); ta.selectionEnd = shiftOffset(selEnd, range); }
+    ta.scrollTop = top;
+    p.dirty = false;
+    hideDiskBar();
+    richStale = true;
+    renderFmStrip();
+    // The rich pane is replaced wholesale, which is right: a clean panel has
+    // nothing in it to preserve, and Milkdown owns its own document.
+    if (p.edMode === 'edit' && rich) void ensureRichEditor();
+    else applyMode();
+    sync();
+    refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+  };
+  if (diskBar) {
+    q('.dk-reload', wrap).onclick = () => { const next = p.diskText; hideDiskBar(); rec.reloadFromDisk(next); };
+    // Keep mine remembers the bytes it declined, so the next event about the
+    // same unchanged file is recognised and dropped rather than asking again.
+    q('.dk-keep', wrap).onclick = () => { if (p.diskText != null) p.lastHash = hashText(p.diskText); hideDiskBar(); };
+  }
+  // A link in a rendered doc is a link: plain click, no modifier. The terminal
+  // needs Cmd because a click there belongs to whatever is running; a document
+  // has no competing meaning for it.
+  read.addEventListener('click', (ev) => {
+    const a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+    if (!a) return;
+    ev.preventDefault();
+    openDocLink(a.getAttribute('href'), p, read);
+  });
+
+  // Lines soft-wrap to the pane, so a logical line can be several rows tall.
+  // The hidden measure layer shares every glyph metric with the textarea (the
+  // `.ed-hl, .ed-area, .ed-measure` rule), so the browser itself reports each
+  // line's wrapped height — no font arithmetic to drift. Heights are read at
+  // subpixel precision: offsetHeight rounds, and at --doc-scale 1.15 a
+  // systematic 0.3px per line has the gutter a row off by line 100.
+  let edLast = null;   // {value, width, scale} of the last full measure
+  const sync = () => {
+    const value = ta.value;
+    const width = measure.clientWidth;
+    const scale = docScaleOf(p);
+    const dirty = !edLast || edLast.value !== value;
+    if (dirty) {
+      measure.innerHTML = value.split('\n').map((l) => `<div>${l ? esc(l) : '&#8203;'}</div>`).join('');
+      // the underlay only ever mirrors the textarea, so it can't drift
+      hl.innerHTML = md ? highlightMarkdown(value) : '';
+    }
+    // A pure resize re-wraps the measure layer by itself; only the heights
+    // need re-reading — skipping the reparse keeps tile-drag cheap.
+    if (dirty || edLast.width !== width || edLast.scale !== scale) {
+      const rows = measure.children;
+      gutter.innerHTML = Array.from(rows, (r, i) => `<div style="height:${r.getBoundingClientRect().height}px">${i + 1}</div>`).join('');
+    }
+    edLast = { value, width, scale };
+    gutter.scrollTop = ta.scrollTop;
+    hl.scrollTop = ta.scrollTop;
+  };
+  rec.edSync = sync;
+  // Wrap points move whenever the pane is resized — tile drag, expand, rail
+  // collapse — and the gutter has to follow.
+  const edRo = new ResizeObserver(() => sync());
+  edRo.observe(q('.ed-stack', wrap));
+  const applyMode = () => {
+    wrap.dataset.mode = p.edMode;
+    if (p.edMode === 'read') {
+      if (html) {
+        // The page renders from the buffer, not the file, so Edit → Read shows
+        // unsaved changes — the same live round trip markdown has. Sandboxed
+        // exactly like the standalone viewer: scripts run, but the page has an
+        // opaque origin and cannot reach Nami. The injected <base> makes the
+        // page's own relative images and stylesheets resolve beside the file;
+        // the parser hoists it into <head> wherever the document starts.
+        read.innerHTML = '';
+        const f = document.createElement('iframe');
+        f.className = 'ed-html';
+        if (p.dirty) {
+          // Mid-edit the file on disk is stale, so the page is rendered from the
+          // buffer in an opaque sandbox — the change shows live, its relative
+          // images do not (an opaque origin cannot fetch file://), and they
+          // return the moment you save. allow-scripts only; no same-origin,
+          // because a srcdoc page shares Nami's file:// origin and the flag
+          // would let it read the app.
+          f.setAttribute('sandbox', 'allow-scripts');
+          const text = p.text || '';
+          const dir = toDirUrl(dirName(p.filePath));
+          f.srcdoc = /<base[\s>]/i.test(text) ? text : `<base href="${dir}">` + text;
+        } else {
+          // Saved → served from nami-doc://, its own origin. Relative images
+          // load, and allow-same-origin is safe: "same origin" is the page's
+          // nami-doc origin, cross-origin to Nami, so it still cannot reach the
+          // app (proved by the hostile-page test). connect-src 'none' in the
+          // served CSP stops it sending anything it read anywhere.
+          f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+          f.src = docUrl(p.filePath);
+        }
+        read.appendChild(f);
+      } else {
+        // Images in a doc resolve like the HTML Read tab's do: doc-relative
+        // paths through nami-doc:// (its containment gate refuses .. escapes),
+        // remote and data URLs as themselves. Absolute paths stay links — a
+        // document does not get to display arbitrary files from the disk.
+        read.innerHTML = renderMarkdown(p.text || '', {
+          resolveImage: (src) => markdownImageUrl(p.filePath, src),
+        });
+        applyDocColWidths(read, p.mdColWidths);
+      }
+    }
+    wrap.querySelectorAll('.ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.edMode));
+    if (p.edMode === 'edit' && rich) {
+      renderFmStrip();   // markdown-tab edits to the YAML land here on re-entry
+      void ensureRichEditor().then((editor) => {
+        if (editor && p.edMode === 'edit') editor.focus();
+      });
+    }
+    if ((p.edMode === 'edit' && !rich) || p.edMode === 'markdown') sync();
+  };
+
+  ta.addEventListener('input', () => { p.text = ta.value; markDirty(); if (rich) richStale = true; sync(); });
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; hl.scrollTop = ta.scrollTop; });
+  ta.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); saveEditor(p); }
+    // insertText, not an assignment to ta.value: assigning replaces the field's
+    // contents outside the browser's editing pipeline and throws the undo stack
+    // away with them, so one Tab cost you the whole history — Cmd+Z afterwards
+    // did nothing at all. Editing through the pipeline fires input, and the
+    // handler above does the p.text/dirty/sync work that used to be repeated here.
+    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+  });
+  ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); });
+  wrap.querySelectorAll('.ed-tab').forEach((b) => {
+    b.onclick = () => {
+      p.edMode = b.dataset.m; applyMode();
+      if (p.edMode === 'markdown' || (p.edMode === 'edit' && !rich)) ta.focus();
+    };
+  });
+  const edPath = q('.ed-path', wrap);
+  if (edPath) { edPath.title = W.reveal; edPath.onclick = () => api.revealFile(p.filePath); }
+  bindBrowserButton(q('.ed-browser', wrap), p);
+  q('.ed-finder', wrap).onclick = () => api.revealFile(p.filePath);
+  q('.ed-save', wrap).onclick = () => saveEditor(p);
+  sync(); applyMode();
+}
+async function saveEditor(p) {
+  const res = await api.saveFile({ file: p.filePath, text: p.text });
+  if (res && res.ok) {
+    // The echo guard. Our own write is about to come back off the watcher, and
+    // without this the panel treats it as somebody else's change — which on a
+    // buffer typed into since the save would raise a bar over our own save.
+    p.lastHash = res.hash || hashText(p.text || '');
+    p.diskText = null;
+    p.dirty = false; refreshTileHead(p); refreshRail(); refreshBrowserButtons(p);
+    toast('Saved ' + baseNameOf(p.filePath));
+    return true;
+  }
+  toast('Save failed: ' + (res && res.error || '?'));
+  return false;
+}
+
+// ---- viewer tiles (image / video / audio / pdf / fallback) -----------------
+function mountViewer(p, rec) {
+  const wrap = document.createElement('div'); wrap.className = 'viewer viewer--' + p.sub;
+  const url = fileUrl(p.filePath);
+  const fallback = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">▣</div>
+      <div class="vw-name">${esc(p.title)}</div>
+      <div class="vw-note">${esc(p.note || "Can't preview this file here.")}</div>
+      <button class="btn vw-reveal">${W.reveal}</button></div>`;
+  if (p.sub === 'image') wrap.innerHTML = `<div class="vw-stage"><img src="${esc(url)}" alt="${esc(p.title)}" /></div>`;
+  else if (p.sub === 'video') wrap.innerHTML = `<div class="vw-stage vw-stage--dark"><video src="${esc(url)}" controls playsinline></video></div>`;
+  else if (p.sub === 'audio') wrap.innerHTML = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">♪</div><div class="vw-name">${esc(p.title)}</div><audio src="${esc(url)}" controls></audio></div>`;
+  else if (p.sub === 'pdf') wrap.innerHTML = `<iframe class="vw-pdf" src="${esc(url)}"></iframe>`;
+  // Served from nami-doc://, the page's own origin — relative images load and
+  // allow-same-origin is safe because that origin is cross-origin to Nami (see
+  // the Read tab in mountEditor for the full reasoning). html routes to the
+  // editor now, so this branch is a fallback; it uses the same safe path.
+  else if (p.sub === 'html') wrap.innerHTML = `<iframe class="vw-pdf vw-html" sandbox="allow-scripts allow-same-origin" src="${esc(docUrl(p.filePath))}"></iframe>`;
+  else wrap.innerHTML = fallback;
+  wrap.insertAdjacentHTML('beforeend',
+    `<div class="ed-bar"><span class="ed-path">${esc(shortHome(p.filePath))}</span><button class="btn vw-finder">${W.finderShort}</button></div>`);
+  rec.body.appendChild(wrap);
+  wrap.querySelectorAll('.vw-reveal, .vw-finder, .ed-path').forEach((b) => { b.onclick = () => api.revealFile(p.filePath); if (b.classList.contains('ed-path')) b.title = W.reveal; });
+  // A rewritten PNG keeps its cached bitmap forever otherwise: the src is the
+  // same URL, so nothing re-fetches and the tile shows yesterday's image. The
+  // counter is the whole mechanism. A viewer has no buffer and nothing unsaved,
+  // so there is no decision to make here — only a cache to break.
+  rec.reloadFromDisk = () => {
+    const el = wrap.querySelector('img, video, audio, iframe');
+    if (!el) return;
+    p.vwVersion = (p.vwVersion || 0) + 1;
+    const base = el.classList.contains('vw-html') ? docUrl(p.filePath) : url;
+    el.src = base + (base.includes('?') ? '&' : '?') + 'v=' + p.vwVersion;
+    if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') el.load();
+  };
+  const media = wrap.querySelector('img, video, audio');
+  if (media) media.addEventListener('error', () => {
+    const stage = wrap.querySelector('.vw-stage, .vw-pdf');
+    p.note = 'This format could not be decoded.';
+    if (stage) stage.outerHTML = fallback;
+    const b = wrap.querySelector('.vw-reveal'); if (b) b.onclick = () => api.revealFile(p.filePath);
+  }, { once: true });
+}
+
+// ---- card tiles (agent / skill editing: form + raw markdown) ---------------
+// Agents differ per platform, so they are keyed by both. A skill is keyed by type
+// alone: its frontmatter is the same wherever the folder lives, and keying it by
+// platform meant a skill from Cursor or the project's own folder fell through to
+// the agent shape and offered Tools and Model — fields a SKILL.md has no use for,
+// which the form would then write into the file.
+const FIELD_MAP = {
+  skill: [['name', 'Name'], ['description', 'Description']],
+  // the master: the superset every dialect is a subset of
+  'project:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model'], ['mode', 'Mode']],
+  'claude:agent': [['name', 'Name'], ['description', 'Description'], ['tools', 'Tools'], ['model', 'Model']],
+  'opencode:agent': [['description', 'Description'], ['mode', 'Mode'], ['model', 'Model']],
+  'opencode:command': [['description', 'Description'], ['agent', 'Agent'], ['model', 'Model']],
+};
+function connectionsOf(item) {
+  const byId = new Map(S.library.items.map((i) => [i.id, i]));
+  const out = S.library.edges.filter((e) => e.from === item.id).map((e) => byId.get(e.to)).filter(Boolean);
+  const inn = S.library.edges.filter((e) => e.to === item.id).map((e) => byId.get(e.from)).filter(Boolean);
+  return { out, inn };
+}
+// A skill that lives somewhere else is worth showing, but showing it is only
+// half a feature: this is the action that makes it usable here. Nothing offers
+// it for a skill already in the project, or one whose files have gone.
+function useHereLabel(item) {
+  if (item.broken) return '';
+  if (item.type === 'skill') return item.scope === 'project' ? '' : 'Use here';
+  return item.readOnly ? 'Duplicate to project' : '';
+}
+// A hand-made platform agent can be lifted into the drawer; a master already
+// is everyone's, and read-only plugin agents are somebody else's to lift.
+function canAdopt(item) {
+  return item.type === 'agent' && !item.readOnly && !item.broken && !!S.project
+    && ['claude', 'opencode', 'gemini', 'antigravity', 'kimi'].includes(item.platform);
+}
+async function openCard(item, opts) {
+  await loadLibrary();
+  const r = resolveOpen(S.panels, 'card', item.filePath);
+  if (r.action === 'focus') { focusPanel(r.id); return; }
+  const res = await api.rawFile(item.filePath);
+  if (!res.ok) { toast(res.error || 'Could not open'); loadLibrary(true); return; }
+  const doc = parseDoc(res.text);
+  const chip = TYPE_CHIP[item.type] || TYPE_CHIP.agent;
+  const p = {
+    id: uid('p_'), kind: 'card', item, filePath: item.filePath, doc, raw: res.text,
+    // The invariant is 'only markdown edits as frontmatter', and it must not
+    // rest on a .toml never happening to start with ---.
+    mode: doc.hasFrontmatter && editsAsFrontmatter(item.filePath) ? 'form' : 'raw', dirty: false, status: 'live',
+    chipKind: chip.kind, code: chip.code, title: item.name, cwd: S.project && S.project.path,
+  };
+  if (doc.malformed) toast('Frontmatter looks malformed. Raw view only.');
+  if (opts && opts.pin) pinFilePanel(p, opts);
+  else openPeek(p);
+}
+function mountCard(p, rec) {
+  // A broken link has no file behind it, so its inputs are disabled for the same
+  // reason a plugin's are: there is nothing here that saving could write to.
+  const ro = p.item.readOnly || p.item.broken;
+  const wrap = document.createElement('div'); wrap.className = 'card-ed';
+  const fields = FIELD_MAP[p.item.type] || FIELD_MAP[p.item.platform + ':' + p.item.type] || FIELD_MAP['claude:agent'];
+  // The form is a frontmatter editor, and only markdown has frontmatter. Codex
+  // agents are TOML: offered the form, it would find no fence, fall through to
+  // Claude's field list, and the first keystroke would make setField *create*
+  // frontmatter — writing a YAML block onto somebody's hand-written TOML and
+  // leaving a file Codex can no longer parse. No form, and the raw tab is
+  // named for what it actually holds.
+  const asMarkdown = editsAsFrontmatter(p.filePath);
+  wrap.innerHTML = `
+    <div class="card-tabs">
+      ${asMarkdown ? '<button class="card-tab" data-m="form">Form</button>' : ''}
+      <button class="card-tab" data-m="raw">${asMarkdown ? 'Markdown' : esc(formatLabel(p.filePath))}</button>
+      <span class="card-src">${esc(p.item.platform + ' ' + p.item.type + ' · ' + p.item.scope)}${ro ? ' · read-only' : ''}</span>
+    </div>
+    <div class="card-form">
+      ${fields.map(([k, label]) => `<label class="card-lbl">${esc(label)}</label>
+        <input class="card-in" data-f="${k}" ${ro ? 'disabled' : ''} />`).join('')}
+      <label class="card-lbl">Instructions</label>
+      <textarea class="card-body" spellcheck="false" ${ro ? 'disabled' : ''}></textarea>
+    </div>
+    <div class="card-raw"><textarea class="raw-area" spellcheck="false" ${ro ? 'readonly' : ''}></textarea></div>
+    <div class="card-links"></div>
+    <div class="ed-bar">
+      <span class="ed-path">${esc(shortHome(p.filePath))}</span>
+      <button class="btn card-finder">${W.finderShort}</button>
+      ${p.item.type === 'agent' && p.item.platform === 'claude' ? '<button class="btn card-use">Use</button>' : ''}
+      ${canAdopt(p.item) ? '<button class="btn btn--go card-adopt">Make it everyone’s</button>' : ''}
+      ${useHereLabel(p.item) ? `<button class="btn btn--go card-dup">${esc(useHereLabel(p.item))}</button>` : ''}
+      ${p.item.broken ? '<button class="btn btn--go card-del">Remove this dead link</button>'
+        : ro ? ''
+        : '<button class="btn card-del">Delete</button><button class="btn card-improve">Improve with my agent</button><button class="btn btn--go card-save">Save ' + kbd('save') + '</button>'}
+    </div>`;
+  rec.body.appendChild(wrap);
+  const formEl = q('.card-form', wrap), rawEl = q('.card-raw', wrap), rawTa = q('.raw-area', wrap), bodyTa = q('.card-body', wrap);
+  const markDirty = () => { if (!p.dirty) { p.dirty = true; keepFile(p); refreshTileHead(p); refreshRail(); } };
+
+  const syncFormFromDoc = () => {
+    formEl.querySelectorAll('.card-in').forEach((inp) => { inp.value = getField(p.doc, inp.dataset.f); });
+    bodyTa.value = p.doc.body;
+  };
+  const applyMode = () => {
+    const formMode = p.mode === 'form';
+    formEl.style.display = formMode ? '' : 'none';
+    rawEl.style.display = formMode ? 'none' : '';
+    wrap.querySelectorAll('.card-tab').forEach((b) => b.classList.toggle('active', b.dataset.m === p.mode));
+    if (formMode) syncFormFromDoc(); else rawTa.value = p.raw;
+  };
+  wrap.querySelectorAll('.card-tab').forEach((b) => {
+    b.onclick = () => {
+      const target = b.dataset.m;
+      if (target === p.mode) return;
+      if (target === 'raw') { p.raw = serializeDoc(p.doc); p.mode = 'raw'; applyMode(); return; }
+      if (!asMarkdown) return;   // there is no form for a file with no frontmatter to edit
+      const doc = parseDoc(rawTa.value);
+      if (doc.malformed) { toast('Fix the frontmatter fences (---) first — staying in raw view.'); return; }
+      p.raw = rawTa.value; p.doc = doc; p.mode = 'form'; applyMode();
+    };
+  });
+  formEl.querySelectorAll('.card-in').forEach((inp) => {
+    inp.addEventListener('input', () => { setField(p.doc, inp.dataset.f, inp.value); markDirty(); });
+  });
+  bodyTa.addEventListener('input', () => { p.doc.body = bodyTa.value; markDirty(); });
+  rawTa.addEventListener('input', () => { p.raw = rawTa.value; markDirty(); });
+  [bodyTa, rawTa].forEach((ta) => ta.addEventListener('focus', () => { S.activeId = p.id; refreshRail(); }));
+
+  // connections strip: what this references, what references it (from the library edges)
+  const linksEl = q('.card-links', wrap);
+  const { out, inn } = connectionsOf(p.item);
+  if (out.length || inn.length) {
+    const chip = (i) => `<button class="link-chip" data-id="${esc(i.id)}">${esc(i.slug)}</button>`;
+    linksEl.innerHTML =
+      (out.length ? `<span class="lk-lbl">references →</span>${out.map(chip).join('')}` : '') +
+      (inn.length ? `<span class="lk-lbl">← referenced by</span>${inn.map(chip).join('')}` : '');
+    linksEl.querySelectorAll('.link-chip').forEach((b) => {
+      b.onclick = () => { const it = S.library.items.find((x) => x.id === b.dataset.id); if (it) openCard(it); };
+    });
+  } else linksEl.style.display = 'none';
+
+  const cardPath = q('.ed-path', wrap);
+  if (cardPath) { cardPath.title = W.reveal; cardPath.onclick = () => api.revealFile(p.filePath); }
+  const cardFinder = q('.card-finder', wrap);
+  if (cardFinder) cardFinder.onclick = () => api.revealFile(p.filePath);
+  const useBtn = q('.card-use', wrap);
+  // Same resolution the picker uses, so Use and ⌘K never disagree about
+  // which tool an agent runs on.
+  if (useBtn) useBtn.onclick = () => {
+    const tool = rowTool(p.item);
+    if (!tool) { toast('Nothing installed can run ' + p.item.slug + '.'); return; }
+    launchAgent(p.item, tool);
+  };
+  const adoptBtn = q('.card-adopt', wrap);
+  if (adoptBtn) adoptBtn.onclick = async () => {
+    if (p.dirty) { toast('Save the card first — the master is lifted from the file.'); return; }
+    adoptBtn.disabled = true; adoptBtn.textContent = 'Lifting…';
+    const res = await api.adoptAgent({ filePath: p.item.filePath, platform: p.item.platform, projectPath: S.project.path, agentIds: installedAgentIds() });
+    if (!res.ok) { toast(res.error || 'Could not lift it'); adoptBtn.disabled = false; adoptBtn.textContent = 'Make it everyone’s'; return; }
+    if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
+    await loadLibrary(true);
+    const master = S.library.items.find((i) => i.filePath === res.masterPath);
+    toast('Now everyone’s — the master lives in agents/.');
+    if (master) openCard(master);
+  };
+  const saveBtn = q('.card-save', wrap); if (saveBtn) saveBtn.onclick = () => saveCard(p);
+  const dupBtn = q('.card-dup', wrap);
+  if (dupBtn) dupBtn.onclick = async () => {
+    if (!S.project) { toast('Open a folder first — the copy lands in the project.'); return; }
+    const res = await api.libraryDuplicate({ filePath: p.item.filePath, type: p.item.type, projectPath: S.project.path });
+    if (!res.ok) { toast(res.error || 'Copy failed'); return; }
+    // A skill only runs here once the pointer says so, so the copy and the
+    // announcement are one action — otherwise Use here leaves you half done.
+    if (p.item.type === 'skill') {
+      const w = await api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() });
+      toast(w && w.ok && (w.written || []).length
+        ? `Copied in and announced — every installed agent knows about ${res.item.slug} now.`
+        : 'Copied into this project — opening your editable copy.');
+      await refreshPointer(true);
+    } else toast('Copied into this project — opening your editable copy.');
+    loadLibrary(true);
+    openCard(res.item);
+  };
+  const impBtn = q('.card-improve', wrap);
+  if (impBtn) impBtn.onclick = () => {
+    if (p.dirty) { toast('Save the card first so your agent sees your latest.'); return; }
+    openImproveItem(p.item);
+  };
+  const delBtn = q('.card-del', wrap);
+  if (delBtn) delBtn.onclick = async () => {
+    if (!delBtn.dataset.armed) { delBtn.dataset.armed = '1'; delBtn.textContent = 'Really move to ' + W.trash + '?'; delBtn.classList.add('armed'); return; }
+    const res = await api.libraryDelete({ filePath: p.item.filePath, projectPath: S.project && S.project.path });
+    if (!res.ok) { toast(res.error || 'Could not delete'); return; }
+    if (S.panels.includes(p)) closePanel(p.id); else closeOverlay();
+    loadLibrary(true); toast('Moved to ' + W.trash + '.');
+    // and stop advertising it, along with any native link that pointed at it
+    if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
+      api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
+    }
+  };
+  // clicking or tabbing anywhere else stands the armed Delete back down
+  if (delBtn) delBtn.onblur = () => {
+    if (!delBtn.dataset.armed) return;
+    delete delBtn.dataset.armed; delBtn.textContent = 'Delete'; delBtn.classList.remove('armed');
+  };
+  applyMode();
+}
+async function saveCard(p) {
+  if (p.item.readOnly) return;
+  if (p.mode === 'form') p.raw = serializeDoc(p.doc);
+  const res = await api.saveFile({ file: p.filePath, text: p.raw });
+  if (res && res.ok) {
+    p.dirty = false;
+    p.title = getField(p.doc, 'name') || p.item.slug;
+    refreshTileHead(p); refreshRail(); toast('Saved ' + p.title);
+    loadLibrary(true);
+    // The block publishes each skill's description, so editing one here is a
+    // reason to rewrite it — the announcement should not lag the file.
+    if (p.item.type === 'skill' && p.item.scope === 'project' && S.project) {
+      api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true));
+    }
+    // A master agent's copies must never lag the master — regenerate on save.
+    if (p.item.type === 'agent' && p.item.platform === 'project' && S.project) {
+      api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() });
+    }
+  } else toast('Save failed: ' + (res && res.error || '?'));
+}
+
+// ---- dictation (in-app mic + clipboard paste) ------------------------------
+// Which engine transcribes is main's business (see stt.js). The renderer only
+// records, decodes to the 16 kHz mono float every engine can read, and asks.
+let annotationRecording = null;
+let recording = null; // { panelId, recorder, stream }
+
+// S.sttInfo mirrors stt.status(): { active, chosen, ready, providers[] }.
+function setSttInfo(info) {
+  S.sttInfo = info || { active: null, chosen: null, ready: false, providers: [] };
+  S.stt = !!S.sttInfo.ready;
+  return S.sttInfo;
+}
+async function refreshSttInfo() { return setSttInfo(await api.sttStatus()); }
+function sttProvider(id) { return (S.sttInfo && S.sttInfo.providers || []).find((p) => p.id === id) || null; }
+
+// Only Chromium can decode Opus-in-WebM, so the samples have to be made here.
+// Returns null when decoding fails — cloud providers can still use the raw blob.
+async function decodePcm(blob) {
+  try {
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    try {
+      const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+      if (buf.numberOfChannels === 1) return buf.getChannelData(0).slice();
+      // downmix, scaled by 1/√2 per channel so a centred voice keeps its level
+      const l = buf.getChannelData(0), r = buf.getChannelData(1);
+      const out = new Float32Array(l.length), k = Math.SQRT1_2;
+      for (let i = 0; i < l.length; i++) out[i] = k * (l[i] + r[i]);
+      return out;
+    } finally { ctx.close(); }
+  } catch (_) { return null; }
+}
+
+// One recording → text. Sends both shapes: decoded samples for the on-device
+// engine, the original webm so cloud providers upload ~8 KB/s instead of a WAV.
+async function transcribeBlob(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const pcm = await decodePcm(blob);
+  return api.transcribe({ pcm, sampleRate: 16000, bytes, mime: blob.type || 'audio/webm' });
+}
+function startAnnotationDictation({ onState, onText, onError }) {
+  let cancelled = false, recorder = null, stream = null;
+  const release = () => stream?.getTracks().forEach(track => track.stop());
+  const handle = {
+    cancel() { cancelled = true; if(annotationRecording===handle)annotationRecording=null; if (recorder?.state === 'recording') recorder.stop(); release(); onState('idle'); },
+    stop() { if (recorder?.state === 'recording') recorder.stop(); },
+  };
+  if(annotationRecording){queueMicrotask(()=>onError('Finish the current comment recording first.'));return handle;}
+  annotationRecording=handle;
+  (async () => {
+    await Promise.resolve();
+    if(cancelled)return;
+    try {
+      if (recording) throw new Error('Stop session dictation before recording a comment.');
+      if (!S.stt) throw new Error('Choose a speech provider in Settings → Voice first.');
+      onState('starting'); stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      if (cancelled) { release(); return; }
+      recorder = new MediaRecorder(stream); const chunks = [];
+      recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+      recorder.onerror = () => { release(); if (!cancelled) { onState('idle'); onError('Microphone recording failed.'); } };
+      recorder.onstop = async () => {
+        release(); if (cancelled) return; onState('transcribing');
+        try { const result = await transcribeBlob(new Blob(chunks, {type:recorder.mimeType || 'audio/webm'}));
+          if (cancelled) return; if (!result?.ok || !result.text) throw new Error(result?.error || 'No speech detected.');
+          onText(result.text);
+        } catch (error) { if (!cancelled) onError(error.message); }
+        finally { if(annotationRecording===handle)annotationRecording=null; if (!cancelled) onState('idle'); }
+      };
+      recorder.start(); onState('recording');
+    } catch (error) { release(); if(annotationRecording===handle)annotationRecording=null; if (!cancelled) { onState('idle'); onError(micErrorText(error, api.platform)); } }
+  })();
+  return handle;
+}
+function micBtn(p) {
+  const t = tileEls.get(p.id); if (!t) return null;
+  return q('.t-mic', t.head);
+}
+function setMicState(p, state) {
+  const b = micBtn(p); if (!b) return;
+  if (!b.dataset.idle) b.dataset.idle = b.innerHTML; // whatever glyph pair it was born with
+  b.classList.toggle('rec', state === 'recording');
+  b.classList.toggle('busy', state === 'transcribing');
+  if (state === 'recording') b.innerHTML = '<span class="rec-square"></span>';
+  else if (state === 'transcribing') b.textContent = '…';
+  else b.innerHTML = b.dataset.idle;
+  b.title = state === 'recording' ? 'Stop & transcribe' : state === 'transcribing' ? 'Transcribing…' : 'Dictate into this session';
+}
+async function toggleMic(p) {
+  if(annotationRecording){toast('Finish or cancel comment dictation first.');return;}
+  if (recording && recording.panelId === p.id) { stopMic(); return; }
+  if (recording) stopMic();
+  // nothing set up: send them somewhere they can fix it, rather than a dead end
+  if (!S.stt) { toast('Pick how Bond should hear you.'); return openSettings('voice'); }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream); const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach((x) => x.stop());
+      setMicState(p, 'transcribing');
+      const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+      const res = await transcribeBlob(blob);
+      setMicState(p, 'idle');
+      if (res && res.ok && res.text) { injectToSession(p, res.text); toast('Dictated: ' + shorten(res.text, 40)); }
+      else toast('Transcribe failed: ' + (res && res.error || 'no speech'));
+    };
+    rec.start(); recording = { panelId: p.id, recorder: rec, stream };
+    setMicState(p, 'recording');
+    toast('Recording… click the mic again to stop.');
+  } catch (e) { toast('Mic error: ' + micErrorText(e, api.platform)); }
+}
+function stopMic() { if (recording) { try { recording.recorder.stop(); } catch (_) {} recording = null; } }
+async function pasteDictation(p) {
+  const text = await api.readClipboard();
+  if (!text || !text.trim()) { toast('Clipboard is empty — dictate in your dictation app first.'); return; }
+  injectToSession(p, text.trim()); toast('Pasted dictation into ' + shorten(p.title, 24));
+}
+function injectToSession(p, text) {
+  if (!text) return;
+  focusPanel(p.id, false, { preserveLayout:true });
+  if (p.kind === 'acp') {
+    const t = tileEls.get(p.id); if (!t || !t.aiInput) return;
+    t.aiInput.value += (t.aiInput.value && !t.aiInput.value.endsWith(' ') ? ' ' : '') + text;
+    t.aiInput.dispatchEvent(new Event('input'));
+    t.aiInput.focus();
+    return;
+  }
+  if (p.kind === 'editor') {
+    const t = tileEls.get(p.id); if (!t || !t.ta) return;
+    // Same reason as the Tab key: assigning ta.value costs the undo stack, and
+    // dictation was spending it on every insert. focusPanel above already put
+    // the keyboard here; execCommand needs that for certain, so say so.
+    t.ta.focus();
+    document.execCommand('insertText', false, text);
+    return;
+  }
+  if (p.autoName) feedSessionName(p, text);
+  api.termWrite({ id: p.id, data: text });
+}
+// Rename in place: the label becomes an input sitting exactly where it was, so
+// the tile never reflows. Enter keeps it, Escape and an empty name abandon it.
+// A name you set by hand outranks everything, including claude's own, and rides
+// down into claude on the next spawn so both sides read the same.
+function beginRename(p, el) {
+  if (!el || el.querySelector('input')) return;
+  const input = document.createElement('input');
+  input.className = 'name-edit';
+  input.value = p.title;
+  input.setAttribute('aria-label', 'Rename session');
+  el.textContent = '';
+  el.appendChild(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = (keep) => {
+    if (done) return; done = true;
+    const next = input.value.trim();
+    if (keep && next && next !== p.title) applyTitle(p, next, 'user');
+    else { refreshTileHead(p); refreshRail(); }
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('dblclick', (e) => e.stopPropagation());
+  input.addEventListener('mousedown', (e) => e.stopPropagation());
+}
+
+// Every rename in the app goes through here, so precedence is decided in one
+// place: your own name sticks, claude's name upgrades a guess, a guess only
+// ever fills an unnamed tile. Returns whether the label actually moved.
+function applyTitle(p, title, source) {
+  const win = adoptTitle({ title: p.title, source: p.titleSource }, { title, source });
+  if (!win) return false;
+  p.title = win.title; p.titleSource = win.source;
+  if (source !== 'prompt') { p.autoName = false; p._nameDraft = ''; }
+  refreshTileHead(p); refreshRail(); savePanels();
+  for (const f of S.panels) if (f.owner === p.id) refreshTileHead(f); // file cards name their session
+  if (source !== 'user') flashTitle(p); // you typed it yourself: nothing to notice
+  return true;
+}
+// One flash on both labels when a name arrives on its own, so the rename is
+// noticed rather than puzzled over. The rail row was just rebuilt, so only the
+// tile's label needs its animation restarted.
+function flashTitle(p) {
+  const t = tileEls.get(p.id);
+  const labels = [t && q('.t-title', t.head), q(`.nav-card[data-id="${p.id}"] .goal`)].filter(Boolean);
+  for (const el of labels) { el.classList.remove('renamed'); void el.offsetWidth; el.classList.add('renamed'); }
+}
+// Keystrokes stream into a name draft until Enter commits one (session-name.mjs
+// decides); the committed prompt names the tile straight away, so the rail is
+// useful from the first turn — claude's own name replaces it a minute later.
+function feedSessionName(p, data) {
+  const r = feedNameDraft(p._nameDraft, data);
+  p._nameDraft = r.draft;
+  if (!r.name) return;
+  p.autoName = false; p._nameDraft = '';
+  applyTitle(p, r.name, 'prompt');
+}
+
+// ===========================================================================
+//  Panel lifecycle
+// ===========================================================================
+// ---- persistence: the layout survives restarts -----------------------------
+let saveTimer = null;
+function panelSnapshot() {
+  // The size a card was dragged to belongs to every kind of tile, so it is
+  // added here rather than inside each branch — five branches that each had to
+  // remember is five places to forget.
+  const size = (p) => {
+    const o = { spanX: p.spanX, spanY: p.spanY };
+    if(p.companionOf) { const index=S.panels.findIndex(x=>x.id===p.companionOf);if(index>=0)o.companionIndex=index; }
+    if (isSessionPanel(p)) { o.imageAttachments = p.imageAttachments || []; }
+    if (p.fontSize >= 10 && p.fontSize <= 18) o.fontSize = p.fontSize;
+    if (DOC_STEPS.includes(p.docScale)) o.docScale = p.docScale;
+    return o;
+  };
+  // A file names the session it belongs to by that session's position in this
+  // list: ids are minted fresh on restore, positions are not (desk-view.mjs).
+  const owners = ownerIndexes(S.panels);
+  const own = (p) => (owners[p.id] === undefined ? {} : { ownerIndex: owners[p.id] });
+  return S.panels.map((p) => {
+    if (p.kind === 'browser') return { kind: 'browser', url: p.url, profileId:p.profileId, filePath: p.filePath, title: p.title, ...own(p), ...size(p) };
+    if (p.kind === 'editor') return { kind: 'editor', filePath: p.filePath, ...own(p), ...size(p) };
+    if (p.kind === 'viewer') return { kind: 'viewer', filePath: p.filePath, ...own(p), ...size(p) };
+    if (p.kind === 'card') return { kind: 'card', item: p.item, ...own(p), ...size(p) };
+    // A one-shot that has run comes back as a plain terminal, not as its
+    // command. Restoring the command re-ran it: leave an install tile on the
+    // desk, quit, and Nami piped curl into bash again on the next launch, and
+    // the one after that. A session is worth restoring; an errand is not.
+    if (p.oneShot && (p.commandDone || p.exited)) {
+      return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
+    }
+    return { kind: p.kind, title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, command: p.command, program: p.program, args: p.args, sid: p.sid, acpSid: p.acpSid, oneShot: p.oneShot, purpose: p.purpose, agentId: p.agentId, watchDone: p.watchDone, ...size(p) };
+  });
+}
+function savePanels() {
+  if (S.demo) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    api.savePanels({ panels: panelSnapshot(), folder: S.project ? S.project.path : null });
+  }, 400);
+}
+// Write the desk now, under a folder named by the caller. A folder switch can't
+// use savePanels(): it reads S.project, which is about to point somewhere else.
+function flushPanels(folder) {
+  if (S.demo) return Promise.resolve();
+  clearTimeout(saveTimer);
+  return api.savePanels({ panels: panelSnapshot(), folder: folder || null });
+}
+async function restorePanels(snaps) {
+  // Each claude panel resumes its own conversation by saved sid. Snapshots from
+  // before sids existed can't be told apart, so only the newest of them may use
+  // --continue (which always means "the most recent conversation in this cwd") —
+  // giving it to all of them is exactly the everything-becomes-one-session bug.
+  // A run panel (kimi, codex, …) resumes by its saved acpSid; main checks the
+  // agent's store still holds that session and falls back to a fresh spawn.
+  const newestLegacy = snaps.find((s) => s.kind === 'claude' && !s.sid);
+  const restored = snaps.map(() => null); // snapshot position -> the panel it became
+  // open* unshift; walk the list backwards so the restored order matches
+  for (const [i, s] of [...snaps.entries()].reverse()) {
+    try {
+      // Every open* unshifts, so a tile that actually arrived is S.panels[0].
+      // Reading the size back off that is exact whatever the kind, and does not
+      // depend on five different functions agreeing to return their panel.
+      const before = S.panels.length;
+      if (s.kind === 'browser') browsers.open(s.url, s.filePath, null, null, true, s.profileId);
+      else if (s.kind === 'editor') await openFile(s.filePath, { pin: true });
+      else if (s.kind === 'viewer') await openFile(s.filePath, { pin: true });
+      else if (s.kind === 'card' && s.item) await openCard(s.item, { pin: true });
+      else if (s.kind === 'ai') continue; // retired session kind — nothing to bring back
+      else if (s.kind) startPanel({ kind: s.kind, title: s.title, titleSource: s.titleSource, code: s.code, chipKind: s.chipKind, cwd: s.cwd, command: s.command, program: s.program, args: s.args, sid: s.sid, acpSid: s.acpSid, view: s.view, oneShot: s.oneShot, purpose: s.purpose, agentId: s.agentId, watchDone: s.watchDone, cont: s.kind === 'claude' ? (!!s.sid || s === newestLegacy) : !!s.acpSid });
+      // A snapshot from before spans existed carries none, and a panel with no
+      // span renders at the default. That is the whole of the migration.
+      if (S.panels.length > before) {
+        const n = S.panels[0];
+        restored[i] = n;
+        if (s.spanX || s.spanY) { n.spanX = s.spanX; n.spanY = s.spanY; }
+        if (s.fontSize) n.fontSize = s.fontSize;
+        if (s.docScale) n.docScale = s.docScale;
+        if (isSessionPanel(n)) {
+          n.imageAttachments = Array.isArray(s.imageAttachments) ? s.imageAttachments.filter((a) => a && typeof a.path === 'string' && typeof a.thumbnail === 'string').slice(0, 20) : [];
+          const rec = tileEls.get(n.id);
+          if (rec?.refreshImages) rec.refreshImages();
+        }
+      }
+    } catch (_) {}
+  }
+  for(let i=0;i<snaps.length;i++){const p=restored[i],owner=Number.isInteger(snaps[i]?.companionIndex)?restored[snaps[i].companionIndex]:null;if(p&&isSessionPanel(p)&&owner&&owner!==p&&isSessionPanel(owner))p.companionOf=owner.id;}
+  resolveOwners(restored, snaps); // owners by position, now that every id exists
+  browsers.restore();
+  S.activeId = S.panels[0] ? S.panels[0].id : null;
+  renderAll();
+}
+
+// Where a new panel's name stands on the ladder (session-name.mjs). Chat cards
+// are built by hand in the agent picker rather than through startPanel, so this
+// is the one place both go through — a card born "Claude Code" must be as
+// nameable as a tile born "Claude session".
+function seedTitleSource(p) {
+  if (!['editor', 'viewer', 'card'].includes(p.kind) && isGenericTitle(p.title, (S.agents || []).map((a) => a.name))) {
+    p.autoName = true;
+    // A generic title cannot have come from a prompt or the agent, whatever a
+    // snapshot says: desks saved before bare agent names counted as generic
+    // stamped "Codex" as a prompt name, and that stamp tied with the first
+    // real prompt. A flow's or your own name is never generic, so it is safe.
+    p.titleSource = 'generic';
+  } else p.titleSource = p.titleSource || 'prompt';
+}
+function startPanel(opts) {
+  // Every session belongs to a folder. Without one the pty falls back to the
+  // home directory (main.js term:create), which gives the agent the run of ~ and
+  // files its transcript under a project slug no folder can ever resume from.
+  // The launcher asks for a folder first; this is the backstop for every other
+  // caller.
+  const cwd = opts.cwd || (S.project && S.project.path);
+  if (!cwd && !['editor', 'viewer', 'card'].includes(opts.kind || 'claude')) {
+    toast('Open a folder first — sessions run inside one.');
+    return null;
+  }
+  const p = Object.assign({
+    id: uid('p_'), kind: 'claude', chipKind: opts.chipKind, code: opts.code || code2(opts.title || 'SS'),
+    title: opts.title || 'Session', cwd, status: 'live',
+    attention: false, exited: false, started: false, command: opts.command, program: opts.program, args: opts.args, seed: opts.seed, cont: opts.cont,
+  }, opts);
+  // Cards is retired. A desk saved with view:'cards' (or any leftover caller)
+  // must open as a terminal, not a missing surface.
+  if (p.view === 'cards') p.view = 'term';
+  // A session born with a generic name ("Claude session") takes its name from
+  // the first real prompt the user submits, then from claude itself. Only a
+  // flow says 'flow' outright (agentSession) — everything else lands on the
+  // weak sources, so a name nami merely guessed is never pushed into claude,
+  // and a snapshot saved before any of this existed stays upgradable.
+  seedTitleSource(p);
+  // Every claude panel owns a conversation id from birth (--session-id), so a
+  // restore can bring back that conversation with --resume instead of --continue.
+  // A cont-without-sid panel is the legacy --continue migration — minting an id
+  // there would turn --continue into --resume <nothing> and break it.
+  if (p.kind === 'claude' && !p.sid && !p.cont) p.sid = crypto.randomUUID();
+  p.cwd = cwd; // an explicit `cwd: undefined` in opts must not beat the fallback
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  if (S.view === 'split') { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'select-session', id: p.id }); S.splitFull = null; }
+  renderGrid(); renderRail(); renderHeader(); savePanels();
+  return p;
+}
+const VIEWER_CODES = { image: 'IM', video: 'VI', audio: 'AU', pdf: 'PD', html: 'HT', other: 'FI' };
+function viewerPanel(filePath, sub, note) {
+  return { id: uid('p_'), kind: 'viewer', sub, note, chipKind: 'viewer', code: VIEWER_CODES[sub] || 'VW', title: baseNameOf(filePath), filePath, status: 'live', cwd: S.project && S.project.path };
+}
+// Build the right panel for any path: media/pdf as viewer, text as editor,
+// unreadable/binary as an 'other' viewer card carrying the reason.
+async function buildFilePanel(filePath) {
+  const kind = fileKind(filePath);
+  // html is text underneath: it goes to the editor, which gives it the same
+  // Read/Edit tabs markdown has — Read renders the page, Edit is the source.
+  if (kind !== 'text' && kind !== 'html') return viewerPanel(filePath, kind);
+  const res = await api.rawFile(filePath);
+  if (!res.ok) return viewerPanel(filePath, 'other', res.error || 'Could not open');
+  // lastHash from the read, not from a save: the first watcher event a file
+  // provokes is often the one that opened it, and a panel should know its own
+  // bytes from the moment it has them.
+  return { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: baseNameOf(filePath), filePath, text: res.text, lastHash: hashText(res.text), dirty: false, status: 'live', cwd: S.project && S.project.path };
+}
+// A path that came from rendered content (a markdown link, a token printed in
+// the terminal) can point anywhere on disk. Opening one inside the project is
+// normal; opening one outside it asks first, so a benign-looking link can't
+// silently surface an SSH key or credentials file into a tile.
+function confirmOutsideOpen(abs) {
+  if (!isOutsideProject(S.project && S.project.path, abs)) return true;
+  return confirm('This file is outside your project:\n\n' + shortHome(abs) + '\n\nOpen it anyway?');
+}
+// Looking at a file floats it above the desk; only pinning (or an explicit
+// drop onto the desk, or restore-on-boot) makes it a tile.
+async function openFile(filePath, opts) {
+  const r = resolveOpen(S.panels, 'file', filePath);
+  if (r.action === 'focus') { const f = S.panels.find((x) => x.id === r.id); if (f && opts && opts.pin && !opts.preview) keepFile(f); focusPanel(r.id); return; }
+  const p = await buildFilePanel(filePath);
+  if (opts && opts.pin) pinFilePanel(p, opts);
+  else openPeek(p);
+}
+// A file changes session by hand: right-click a file row or a file card's
+// head, or drag the row onto a session row. Null is the desk.
+function moveFileTo(p, ownerId) {
+  if (!isFilePanel(p) || (p.owner || null) === (ownerId || null)) return;
+  moveFile(p, ownerId);
+  if (S.view === 'split') { S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'select-file', id: p.id }); S.splitFull = null; }
+  refreshTileHead(p); renderGrid(); renderRail(); savePanels();
+}
+function moveMenu(p) {
+  const items = [];
+  for (const s of S.panels) {
+    if (!isSessionPanel(s)) continue;
+    const here = p.owner === s.id;
+    items.push({ label: (here ? '● ' : 'Move to ') + shorten(s.title, 28), off: here, kb: here ? 'here' : '', run: () => moveFileTo(p, s.id) });
+  }
+  if (items.length) items.push('-');
+  const loose = !p.owner || !S.panels.some((s) => s.id === p.owner && isSessionPanel(s));
+  items.push({ label: loose ? '● Desk' : 'Move to desk', off: loose, kb: loose ? 'here' : '', run: () => moveFileTo(p, null) });
+  return items;
+}
+// Every file that lands on the desk comes through here — the tree's pin, a
+// pinned peek, a card, a restore. It joins the session that is active
+// (desk-view.mjs decides which), and as a preview it takes the place of the
+// session's previous preview, so browsing ten files leaves one tab, not ten.
+function pinFilePanel(p, opts = {}) {
+  const owner = opts.owner || ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+  if (owner) p.owner = owner; else delete p.owner;
+  if (opts.preview) p.preview = true; else delete p.preview;
+  const old = opts.preview ? previewToReplace(S.panels, owner, p) : null;
+  if (old) closePanel(old.id, { silent: true });
+  S.panels.unshift(p); S.activeId = p.id; S.expandedId = null;
+  if (S.view === 'split') S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'open', id: p.id });
+  renderGrid(); renderRail(); renderHeader(); savePanels();
+}
+function focusPanel(id, scroll = true, { preserveLayout = false } = {}) {
+  if (preserveLayout && S.activeId !== id) return;
+  S.activeId = id;
+  if (S.view === 'split') {
+    const p = S.panels.find((x) => x.id === id);
+    if (p && !preserveLayout) {
+      const next = focusSplit({ ...S.split, panels:S.panels }, id, S.splitFull);
+      const changed = next.split.sessionId !== S.split.sessionId || next.split.fileId !== S.split.fileId || next.full !== S.splitFull;
+      S.split = next.split; S.splitFull = next.full;
+      if (changed) renderGrid();
+      else { const pv = q('.paneview'); if (pv) syncSplitLayout(pv); }
+    }
+  }
+  renderRail();
+  for (const [pid, t] of tileEls) t.root.classList.toggle('active', pid === id);
+  const t = tileEls.get(id); if (t) { const p = S.panels.find((x) => x.id === id); clearAttention(p); if (scroll) t.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t.term) t.term.focus(); else if (t.aiInput) t.aiInput.focus(); else if (t.ta) t.ta.focus(); }
+}
+function closePanel(id, opts = {}) {
+  const p = S.panels.find((x) => x.id === id); if (!p) return;
+  if ((p.kind==='browser'||isSessionPanel(p)) && !opts.browserConfirmed && browsers.hasPending(p)) { browsers.canClose(p).then(ok=>{if(ok)closePanel(id,{...opts,browserConfirmed:true});}); return; }
+  if (p.kind === 'browser') browsers.removeNotes(id); else if(isSessionPanel(p)&&browsers.hasPending(p)) browsers.clearNotes(p);
+  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty && !opts.silent && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  else if (!isFilePanel(p)) {
+    api.termKill({ id });
+  }
+  const t = tileEls.get(id); if (t) { if (t.disposeRo) t.disposeRo(); if (t.disposeEditor) t.disposeEditor(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); tileEls.delete(id); }
+  const before = S.panels;
+  const closedActive = S.activeId === id;
+  S.panels = S.panels.filter((x) => x.id !== id);
+  orphanFiles(S.panels, id); // a closed session's files stay, on the desk
+  if (S.activeId === id) S.activeId = S.panels[0] ? S.panels[0].id : null;
+  if (S.expandedId === id) S.expandedId = null;
+  if (S.view === 'split') {
+    const closedFile = S.split.fileId === id;
+    S.split = splitAfter({ ...S.split, panels: S.panels }, { type: 'close', id, before });
+    // Keep subsequent keyboard closes on the replacement in the same pane.
+    if (closedActive) S.activeId = closedFile ? (S.split.fileId || S.split.sessionId) : (S.split.sessionId || S.split.fileId);
+    if (S.splitFull === 'files' && !S.split.fileId) S.splitFull = null;
+  }
+  if (opts.silent) return;
+  renderGrid(); renderRail(); renderHeader(); savePanels();
+}
+function closeFinished() {
+  const gone = S.panels.filter((p) => p.exited || (p.kind === 'editor' && !p.dirty && false));
+  for (const p of gone) closePanel(p.id);
+  if (!gone.length) toast('Nothing finished to close.');
+}
+function reorderPanels(fromId, toId) {
+  if (!fromId || fromId === toId) return;
+  const from = S.panels.findIndex((p) => p.id === fromId), to = S.panels.findIndex((p) => p.id === toId);
+  if (from < 0 || to < 0) return;
+  const [m] = S.panels.splice(from, 1); S.panels.splice(to, 0, m);
+  renderGrid(); savePanels();
+}
+
+// ===========================================================================
+//  Launcher
+// ===========================================================================
+// A session runs inside a folder. With one open, launch straight away; without,
+// the folder-first card asks where — recents are one click, and the OS dialog
+// only appears from its "another folder" row. The continuation rides on the
+// overlay itself: Esc / ✕ / click-out use the generic dismiss and simply drop
+// it, so nothing awaits and nothing can hang.
+function withFolder(run, who) {
+  if (S.project) return run();
+  S.overlay = { type: 'folder-first', run, who };
+  renderOverlay();
+}
+function renderFolderFirst() {
+  const o = S.overlay;
+  const who = o.who || 'this session';
+  const recents = (S.recents || []).filter((r) => !r.missing);
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span>
+    <span style="font-weight:700">Where should ${esc(who)} work?</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">then your session starts</span></div>
+    ${recents.length
+    ? `<div class="ff-lead">a session runs inside a folder. Pick one and ${esc(who)} starts there</div>
+      <div class="picker-list" id="ff-list">${recents.map((r, i) => `
+        <div class="picker-row" data-i="${i}" title="${esc(r.path)}">
+          <span class="folder-glyph">${treeIcon('', 'dir', false)}</span>
+          <span class="col"><span class="name">${esc(r.name)}</span><span class="desc">${esc(r.pathShort)}</span></span>
+          ${r.pinned ? '<span class="ff-pin">pinned</span>' : ''}
+        </div>`).join('')}</div>
+      <button class="ff-other" id="ff-pick"><span class="plus">＋</span><span>Choose another folder…</span><span class="kbd">opens the ${W.os} dialog</span></button>`
+    : `<div class="ff-empty">
+        <div class="ff-msg">No folders here yet</div>
+        <div class="ff-sub">a folder is where your files and the session live. One of your projects, or an empty one to start in</div>
+        <button class="btn btn--go" id="ff-pick">Choose a folder…</button>
+        <div class="ff-hint">opens the ${W.os} folder dialog</div>
+      </div>`}`, { top: true });
+  // A pick has to outlive the overlay: closeOverlay() nulls S.overlay, so the
+  // continuation is captured before anything closes.
+  const run = o.run;
+  modal.querySelectorAll('.picker-row').forEach((row) => {
+    row.onclick = async () => {
+      const r = recents[+row.dataset.i]; if (!r) return;
+      closeOverlay();
+      await openFolder(r.path);
+      if (S.project) run();
+    };
+  });
+  q('#ff-pick', modal).onclick = async () => {
+    const info = await api.pickFolder(); if (!info) return;
+    closeOverlay();
+    await switchToFolder(info);
+    if (S.project) run();
+  };
+}
+
+// Callers await this, so a scan already in flight must hand back the SAME
+// promise rather than an instantly-resolved undefined — otherwise the second
+// caller runs before S.agents exists and sees no agents at all.
+let agentsInflight = null;
+function refreshAgents() {
+  if (agentsInflight) return agentsInflight;
+  S.agentsLoading = true;
+  agentsInflight = agentsScan().finally(() => { agentsInflight = null; S.agentsLoading = false; });
+  return agentsInflight;
+}
+async function agentsScan() {
+  try { S.agents = await api.detectAgents(); } catch (_) { S.agents = S.agents || []; }
+  repaintAgentOverlays();
+  // Identity is read after the list paints, one agent at a time in parallel:
+  // a slow CLI delays only its own second line, never the whole sheet.
+  for (const a of (S.agents || [])) if (a.found) refreshAgentStatus(a.id);
+}
+function repaintAgentOverlays() {
+  const ot = S.overlay && S.overlay.type;
+  if (['launcher', 'agent-setup', 'agent-remove', 'connect-form', 'connect-custom', 'connect-own', 'create', 'improve-item'].includes(ot)) renderOverlay();
+}
+async function refreshAgentStatus(id) {
+  try { S.agentStatus[id] = await api.agentStatus(id); } catch (_) { S.agentStatus[id] = null; }
+  repaintAgentOverlays();
+}
+// One agent's second line. Identity when we have it, the registry blurb until
+// then — the row never says less than it does today.
+function statusLineFor(a) {
+  const st = S.agentStatus[a.id];
+  if (!st || st.signedIn === null) return { dot: 'ok', text: a.sub };
+  if (st.signedIn === false) return { dot: 'warn', text: 'signed out' };
+  return { dot: 'ok', text: st.label || a.sub };
+}
+function openLauncher() { S.overlay = { type: 'launcher' }; renderOverlay(); refreshAgents(); }
+function renderLauncher() {
+  const companionOf = S.overlay.companionOf;
+  const prevList = q('#lc-list');
+  const prevScroll = prevList ? prevList.scrollTop : 0;
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">＋</span><span style="font-weight:700">New session</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">${S.project ? esc(S.project.name) : 'no folder'}</span></div>
+    <div class="picker-list" id="lc-list"></div>`, { top: true });
+  const list = q('#lc-list', modal);
+  if (prevScroll) requestAnimationFrame(() => { list.scrollTop = prevScroll; });
+  // The one just added sorts to the top. Anything else and the user is handed
+  // back a list and asked to find their own new thing in it.
+  const ready = (S.agents || []).filter((a) => a.found)
+    .sort((x, y) => (y.id === S.justAdded) - (x.id === S.justAdded)
+      || (CHAT_READY.includes(y.id) - CHAT_READY.includes(x.id)));
+  const missing = (S.agents || []).filter((a) => !a.found);
+
+  if (!S.agents) {
+    const row = document.createElement('div'); row.className = 'picker-row';
+    row.innerHTML = `<span class="col"><span class="desc">looking for agents on ${W.thisMac}…</span></span>`;
+    list.appendChild(row);
+  }
+  for (const a of ready) {
+    const row = document.createElement('div'); row.className = 'picker-row';
+    const st = statusLineFor(a);
+    const manageable = !!a.lifecycle;
+    // The one just installed says so, and says it here — this list is where the
+    // install sends you back to, and an agent that arrived thirty seconds ago
+    // looks exactly like one that has been there for months without it.
+    const fresh = S.justAdded === a.id;
+    if (fresh) row.classList.add('picker-row--new');
+    row.innerHTML = `${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
+      <span class="col"><span class="name">${esc(a.name)}</span>
+      <span class="desc"><span class="ok${st.dot === 'warn' ? ' ok--warn' : ''}">●</span> ready · ${esc(st.text)}</span></span>
+      ${fresh ? '<span class="row-new">just added</span>' : ''}
+      ${manageable ? '<span class="chev" title="Manage this agent">›</span>' : ''}`;
+    const launch = () => {
+      closeOverlay();
+      withFolder(() => {
+        const p = a.kind === 'claude' ? startPanel({ ...terminalAgentOptions(a), title:'Claude session', code:'CC' }) : startPanel({ ...terminalAgentOptions(a), title:a.name, code:code2(a.name) });
+        attachCompanion(p,companionOf);
+      }, a.name);
+    };
+    // Prototype (demo only): agents with an ACP mode default to the cowork
+    // surface; "as terminal" keeps today's launch one click away.
+    // Chat lights up per agent as its bridge passes the probe (acp-probe.mjs).
+    const demoAcp = CHAT_READY.includes(a.id);
+    if (demoAcp) {
+      const tail = document.createElement('span');
+      tail.className = 'lc-acp';
+      tail.innerHTML = '<button class="lc-chat">Chat<span class="lc-beta">beta</span></button>';
+      row.appendChild(tail);
+    }
+    row.onclick = async (e) => {
+      if (manageable && e.target.closest('.chev')) { openAgentSheet(a); return; }
+      if (demoAcp && e.target.closest('.lc-chat')) {
+        closeOverlay();
+        // claude goes LIVE \u2014 real ACP through the official adapter
+        const live = CHAT_READY.includes(a.id);
+        // a chat session stands where your other sessions stand — the project
+        const liveCwd = (!S.demo && S.project && S.project.path) ? S.project.path
+          : folderOfUrl(new URL('../../../../', location.href).href);
+        const np = { id: uid('p_'), kind: 'acp', chipKind: 'agent', code: code2(a.name), title: a.name, agentId: a.id, cwd: live ? liveCwd : ((S.project && S.project.path) || '~'), status: 'live', started: true, attention: false, acpLive: live };
+        seedTitleSource(np);
+        S.panels.unshift(np); S.activeId = np.id;
+        renderGrid(); renderRail(); renderHeader();
+        attachCompanion(np,companionOf);
+        toast(a.name + ' \u2014 new chat session');
+        return;
+      }
+      launch();
+    };
+    list.appendChild(row);
+  }
+  for (const h of EVERGREEN_ROWS) {
+    const row = document.createElement('div'); row.className = 'picker-row';
+    row.innerHTML = `<span class="code" data-kind="${esc(h.chipKind || 'shell')}">${esc(h.code)}</span>
+      <span class="col"><span class="name">${esc(h.name)}</span><span class="desc">${esc(h.sub)}</span></span>`;
+    row.onclick = () => { closeOverlay(); withFolder(async () => { const p=await launchHarness(h); attachCompanion(p,companionOf); }, 'the terminal'); };
+    list.appendChild(row);
+  }
+  // add section: every not-yet-installed agent from the curated registry
+  if (missing.length) {
+    const div = document.createElement('div'); div.className = 'picker-divider';
+    div.textContent = 'add an agent to ' + W.thisMac; list.appendChild(div);
+    const grid = document.createElement('div'); grid.className = 'add-grid'; list.appendChild(grid);
+    for (const a of missing) {
+      const card = document.createElement('div'); card.className = 'add-card'; card.tabIndex = 0;
+      card.innerHTML = `${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
+        <span class="ac-name">${esc(a.name)}</span><span class="ac-desc">${esc(a.sub)}</span><span class="ac-go">set up →</span>`;
+      card.onclick = () => { closeOverlay(); openAgentSetup(a); };
+      grid.appendChild(card);
+    }
+  }
+}
+async function launchHarness(h) {
+  return startPanel({ kind: 'shell', title: 'Terminal', code: '❯', chipKind: 'shell' });
+}
+function openAgentSetup(agent) { S.overlay = { type: 'agent-setup', agent }; renderOverlay(); }
+// Same sheet, two faces. Not installed → the install command, exactly as before.
+// Installed → who it runs as, and everything you can do about that.
+function openAgentSheet(agent) { S.overlay = { type: 'agent-setup', agent }; renderOverlay(); refreshAgentStatus(agent.id); }
+function renderAgentSetup() {
+  const a = S.overlay.agent;
+  return a.found ? renderAgentInstalled(a) : renderAgentInstall(a);
+}
+
+// Every lifecycle action is the CLI's own command, run in the tile that already
+// runs installs. When it exits we re-read status, so the sheet is never stale.
+function runAgentCommand(agent, command, title) {
+  closeOverlay();
+  startPanel({
+    purpose: 'agent', agentId: agent.id, kind: 'run', title, code: code2(agent.name), command,
+    onExit: () => { refreshAgents(); },
+  });
+}
+
+// On this Mac — who it runs as, and everything you can do about that.
+function renderAgentInstalled(a) {
+  const lc = a.lifecycle || {};
+  const st = S.agentStatus[a.id] || null;
+  const grok = a.id === 'grok';
+  const ga = grok ? grokAuthActions(st) : null;
+  const editingKey = grok && S.overlay.editGrokKey;
+  const line = st && st.signedIn === true ? esc(st.label)
+    : st && st.signedIn === false ? 'signed out'
+    : 'checking…';
+  const rows = (st && st.rows) || [];
+  const scan = rows.map((r) =>
+    `<div class="scan-row"><span class="mark">✓</span><span class="label2">${esc(r.k)}</span><span class="value">${esc(r.v)}</span></div>`).join('');
+  // A button only exists when the registry has a real command behind it, so an
+  // unverified CLI shows identity and nothing that could fail.
+  const btn = (id, label, on) => on ? `<button class="btn" id="${id}">${esc(label)}</button>` : '';
+  const actions = grok ? `
+      ${btn('ag-in', 'Sign in with xAI account', ga.signInAccount)}
+      ${btn('ag-out', 'Sign out', ga.signOutAccount)}
+      ${btn('ag-key-switch', 'Switch to API key', ga.switchToKey)}
+      ${btn('ag-key', ga.pasteLabel, ga.pasteKey && !editingKey)}
+      ${btn('ag-health', "Check it's healthy", lc.health)}`
+    : `
+      ${btn('ag-switch', lc.switchLabel || 'Switch account', lc.switchCmd || (lc.login && lc.logout))}
+      ${btn('ag-out', 'Sign out', lc.logout && (!st || st.signedIn !== false))}
+      ${btn('ag-in', 'Sign in', lc.login && st && st.signedIn === false)}
+      ${btn('ag-setup', 'Run setup again', lc.setup)}
+      ${btn('ag-health', "Check it's healthy", lc.health)}`;
+  const pasteRow = editingKey ? `
+    <div class="key-row" data-key="${esc(GROK_API_KEY)}">
+      <span class="k-name">${esc(GROK_API_KEY)}</span>
+      <input class="text-input k-input" id="grok-key-val" type="password" placeholder="paste the secret…" spellcheck="false" />
+      <button class="k-act k-save" id="grok-key-save">save</button>
+      <button class="k-act" id="grok-key-cancel">cancel</button>
+    </div>` : '';
+
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><button class="t-btn su-back" title="Back to new session">←</button>
+      ${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
+      <span class="col"><span class="name">${esc(a.name)}</span>
+      <span class="desc"><span class="ok${st && st.signedIn === false ? ' ok--warn' : ''}">●</span> ${line}</span></span></div>
+
+    <div class="scan-box ag-scan">
+      <div class="label">${W.thisMac}${st && st.source ? `<span class="scan-src">${esc(st.source)}</span>` : ''}</div>
+      ${scan}
+      <div class="scan-row"><span class="mark">✓</span><span class="label2">Program</span><span class="value">${esc(a.pathShort || a.path || 'installed')}</span></div>
+    </div>
+
+    <div class="setup-actions">${actions}
+    </div>
+    ${pasteRow}
+    <div class="ag-links">
+      ${a.configFile ? '<span class="action" id="ag-config">Open its settings file</span>' : ''}
+      ${lc.accountUrl ? '<span class="action" id="ag-account">Manage account online</span>' : ''}
+      ${grok ? '<span class="action" id="ag-key-docs">Get an API key</span>' : ''}
+      <span class="action" id="ag-docs">Read the guide</span>
+    </div>
+    <div class="ag-danger">
+      <button class="btn btn--ghost" id="ag-remove">Remove from ${W.thisMac}</button>
+      <span class="why">Asks first, and names every file it would delete.</span>
+    </div>`);
+
+  q('.su-back', modal).onclick = () => openLauncher();
+  const on = (id, fn) => { const el = q('#' + id, modal); if (el) el.onclick = fn; };
+  // Sign out, then in — joined by main for the shell this machine runs, because
+  // the `&&` that used to be written here is a syntax error in PowerShell.
+  on('ag-switch', () => runAgentCommand(a, a.switchAccount, `${a.name} · sign in`));
+  on('ag-out', () => runAgentCommand(a, lc.logout, `${a.name} · sign out`));
+  on('ag-in', () => runAgentCommand(a, lc.login, `${a.name} · sign in`));
+  on('ag-key-switch', () => runAgentCommand(a, lc.logout, `${a.name} · switch to API key`));
+  on('ag-key', () => { S.overlay.editGrokKey = true; renderOverlay(); });
+  on('ag-setup', () => runAgentCommand(a, lc.setup, `${a.name} · setup`));
+  on('ag-health', () => runAgentCommand(a, lc.health, `${a.name} · check`));
+  on('ag-config', () => { closeOverlay(); openFile(a.configFile, { pin: true }); });
+  on('ag-account', () => api.openUrl(lc.accountUrl));
+  on('ag-key-docs', () => api.openUrl('https://console.x.ai'));
+  on('ag-docs', () => api.openUrl(a.docs));
+  on('ag-remove', () => openAgentRemove(a));
+  const keyInput = q('#grok-key-val', modal);
+  const saveKey = async () => {
+    const v = keyInput && keyInput.value.trim();
+    if (!v) { toast('Paste the secret first.'); return; }
+    const res = await api.keysSet(GROK_API_KEY, v);
+    if (!res.ok) { toast(res.error || 'Could not save it.'); return; }
+    S.overlay.editGrokKey = false;
+    toast(`${GROK_API_KEY} saved — permitted Grok sessions can use it.`);
+    // Grok prefers a session token over the env key. Logging out is what
+    // makes the key the one the next tile actually uses.
+    if (ga && ga.logoutAfterSave && lc.logout) {
+      runAgentCommand(a, lc.logout, `${a.name} · switch to API key`);
+    } else {
+      await refreshAgentStatus(a.id);
+      renderOverlay();
+    }
+  };
+  if (keyInput) {
+    keyInput.focus();
+    keyInput.onkeydown = (e) => {
+      if (e.key === 'Enter') saveKey();
+      if (e.key === 'Escape') { e.stopPropagation(); S.overlay.editGrokKey = false; renderOverlay(); }
+    };
+  }
+  on('grok-key-save', saveKey);
+  on('grok-key-cancel', () => { S.overlay.editGrokKey = false; renderOverlay(); });
+}
+
+// The only action here that destroys anything, so it is the only one that stops
+// and asks — and it names the real paths before it touches them.
+function openAgentRemove(agent) {
+  S.overlay = { type: 'agent-remove', agent, plan: null, busy: false };
+  renderOverlay();
+  api.agentRemovalPlan(agent.id, agent.path).then((plan) => {
+    if (S.overlay && S.overlay.type === 'agent-remove') { S.overlay.plan = plan; renderOverlay(); }
+  });
+}
+function renderAgentRemove() {
+  const o = S.overlay; const a = o.agent; const plan = o.plan;
+  const body = !plan ? '<p class="setup-copy">Working out what this would delete…</p>'
+    : plan.mode === 'none'
+      ? `<p class="setup-copy">${esc(plan.reason)}</p>`
+      : `<div class="warn-box">
+           <div class="wb-head">This ${plan.mode === 'uninstall' ? 'runs' : 'deletes, on ' + W.thisMac}:</div>
+           <ul>${(plan.describe || []).map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
+         </div>
+         <p class="setup-copy">Your projects and files are untouched. You can install ${esc(a.name)} again later,
+           but you would sign in from scratch.</p>`;
+
+  const modal = overlay('setup-box', `
+    <div class="setup-head">${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
+      <span class="col"><span class="name">Remove ${esc(a.name)}?</span>
+      <span class="desc">this cannot be undone</span></span></div>
+    ${body}
+    <div class="setup-actions">
+      ${plan && plan.mode !== 'none' ? `<button class="btn btn--red" id="ar-go"${o.busy ? ' disabled' : ''}>${o.busy ? 'Removing…' : 'Yes, remove it'}</button>` : ''}
+      <button class="btn" id="ar-keep">${plan && plan.mode === 'none' ? 'Close' : 'Keep it'}</button>
+    </div>`);
+
+  q('#ar-keep', modal).onclick = () => openAgentSheet(a);
+  const go = q('#ar-go', modal);
+  if (go) go.onclick = async () => {
+    if (plan.mode === 'uninstall') return runAgentCommand(a, plan.command, `remove ${a.name}`);
+    o.busy = true; renderOverlay();
+    const res = await api.agentRemove(a.id, a.path);
+    o.busy = false;
+    if (res.ok) { closeOverlay(); refreshAgents(); toast(`${a.name} removed.`); }
+    else { renderOverlay(); toast(res.error || `Could not remove ${a.name}.`); }
+  };
+}
+
+// Not on this Mac yet — unchanged from before this feature.
+function renderAgentInstall(a) {
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><button class="t-btn su-back" title="Back to new session">←</button>
+      ${chipHtml({ key: iconKeyFor(a.id), code: code2(a.name), kind: 'agent' })}
+      <span class="col"><span class="name">${esc(a.name)}</span><span class="desc">${esc(a.sub)}</span></span></div>
+    <p class="setup-copy">${esc(a.name)} is not on ${W.thisMac} yet. One command installs it, and I can run that
+      for you in a terminal right here. The first time it starts, it will ask you to sign in, right in the tile.</p>
+    <div class="setup-cmd">${esc(a.install)}</div>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="su-run">Install it for me</button>
+      <button class="btn" id="su-copy">Copy the command</button>
+      <button class="btn" id="su-docs">Read the guide</button>
+    </div>
+    <p class="setup-note">Install it for me opens a terminal tile and runs the line above. Copy puts it on
+      your clipboard. Read the guide opens the official ${esc(a.name)} page in your browser.</p>`);
+  q('.su-back', modal).onclick = () => openLauncher();
+  // A PC comes with neither Node nor Git, and two of these installs are npm.
+  // Asked when the sheet opens, so what is missing is named above the button
+  // rather than by PowerShell after it — and asked again on the click, because
+  // the fix is a winget line the user runs somewhere else. A Mac is never asked.
+  const onPc = api.platform === 'win32';
+  if (onPc) api.installPlan({ agentId: a.id }).then((plan) => {
+    if (plan && plan.prereq && modal.isConnected) q('.setup-actions', modal).insertAdjacentHTML('beforebegin', prereqNoteHtml(plan.prereq, esc));
+  });
+  q('#su-run', modal).onclick = async () => {
+    const plan = onPc ? await api.installPlan({ agentId: a.id }) : null;
+    if (plan && plan.prereq) { toast(plan.prereq.short); return; }
+    closeOverlay();
+    // oneShot + watchDone: this tile exists to run one command Nami chose, and
+    // the tile itself reports when that command lands. Before, the only signal
+    // was the shell dying — which for an install is never — so the toast asked
+    // the user to go and press ⌘N themselves.
+    withFolder(() => startPanel({
+      kind: 'run', title: `install ${a.name}`, code: code2(a.name), command: a.install,
+      oneShot: true, watchDone: true, purpose: 'installer', agentId: a.id,
+      onExit: () => refreshAgents(),
+    }), 'this install');
+  };
+  q('#su-copy', modal).onclick = async () => { await api.copyText(a.install); toast('Copied.'); };
+  q('#su-docs', modal).onclick = () => api.openUrl(a.docs);
+}
+
+// ---- an install that finished ----------------------------------------------
+// The old ending was a shell prompt and a toast asking the user to press ⌘N and
+// go find the agent. Nothing had told the app the install was over, so nothing
+// could offer anything better. Now the tile knows, so it can say what happened
+// and hand back the one list the user came from.
+
+// A strip under the tile body. Deliberately not a toast: a toast is gone in
+// four seconds and this is the tile's own state, which should still be there
+// when someone looks back at it.
+function setTileNote(p, html, kind) {
+  const t = tileEls.get(p.id); if (!t) return;
+  let note = q('.tile-note', t.root);
+  if (!html) { if (note) note.remove(); return; }
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'tile-note';
+    t.root.appendChild(note);
+  }
+  note.className = 'tile-note' + (kind ? ' tile-note--' + kind : '');
+  note.innerHTML = html;
+  return note;
+}
+
+// One place both the live channel and --scene=install go through, so what gets
+// screenshotted is what a user gets.
+function runCommandFinished(p, code) {
+  if (p.commandDone) return;
+  p.commandDone = true; p.commandCode = code;
+  // Snapshot now: from here the tile is an ordinary shell and must never be
+  // restored as a command to run again.
+  savePanels();
+  // head, rail and the live badge all read the same status — refreshing one of
+  // them left the rail saying "running" beside a tile saying "installed".
+  refreshTileHead(p); refreshRail(); renderHeader();
+  if (p.agentId) finishAgentInstall(p, code);
+}
+
+async function finishAgentInstall(p, code) {
+  const agent = () => (S.agents || []).find((x) => x.id === p.agentId);
+  const name = (agent() && agent().name) || p.agentId;
+  refreshTileHead(p);
+
+  // The scan decides, not the exit code. `curl … | bash` — four of the six
+  // install commands — reports the status of bash, and a curl that never
+  // reached the host still leaves bash reading an empty script and exiting 0
+  // (measured against a real pty). A zero means the shell got to the end. Only
+  // finding the program means it installed.
+  if (code === 0) await refreshAgents();
+  const found = !!(agent() && agent().found);
+  const ok = code === 0 && found;
+  p.installOk = ok;
+  refreshTileHead(p); refreshRail();
+
+  if (!ok) {
+    setTileNote(p, `<span class="tn-tx"><b>${esc(name)} is still not on ${W.thisMac}.</b>
+      ${code === 0 ? 'The command ran to the end but left nothing Nami can find — the output above should say why.'
+        : `The install exited with <b>${esc(String(code))}</b>.`}</span>
+      <span class="tn-bt"><button class="btn btn--small" id="tn-docs">Read the guide</button>
+      <button class="btn btn--small" id="tn-retry">Try again</button></span>`, 'warn');
+    const t = tileEls.get(p.id); if (!t) return;
+    const docs = q('#tn-docs', t.root), retry = q('#tn-retry', t.root);
+    if (docs) docs.onclick = () => { const a = agent(); if (a) api.openUrl(a.docs); };
+    if (retry) retry.onclick = () => { const a = agent(); if (a) { closePanel(p.id); openAgentSetup(a); } };
+    return;
+  }
+
+  const a = agent();
+  S.justAdded = a.id;
+  const signedOut = !(S.agentStatus[a.id] && S.agentStatus[a.id].signedIn);
+  setTileNote(p, `<span class="tn-tx"><b>${esc(a.name)} is on ${W.thisMac}.</b>
+    ${signedOut ? 'Signed out — your first session signs you in.' : 'Signed in and ready.'}</span>
+    <span class="tn-bt"><button class="btn btn--go btn--small" id="tn-go">Back to New session</button></span>`, 'ok');
+  const t = tileEls.get(p.id); if (!t) return;
+  const go = q('#tn-go', t.root);
+  // Back to the list they came from, with the new agent in it — rather than
+  // dropping them into a session they did not ask for yet. The finished install
+  // terminal closes on the way out: it has nothing left to say.
+  if (go) go.onclick = () => { closePanel(p.id); openLauncher(); };
+}
+
+// ---- agent picker (⌘K) — fed by the library scan ---------------------------
+// ⌘N answers which tool runs. This answers what it runs as — every agent on the
+// shelf, whatever tool it speaks, with two ways out of every row: into the
+// session you are looking at, or into a fresh one.
+function pickerAgents() {
+  // One agent, one row — the rule the drawer has followed since it landed. A
+  // file sitting where a master's copy would land is that master shadowed on
+  // one tool, not a second agent, and the master's tool list says so as ◐.
+  // ⌘K is this folder only: masters and hand-made in-project files.
+  return (S.library.items || [])
+    .filter(isPickerAgent)
+    .sort((a, b) => sortKey(a) - sortKey(b) || String(a.slug).localeCompare(String(b.slug)));
+}
+function toolNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
+function toolById(id) { return (S.agents || []).find((x) => x.id === id) || null; }
+
+// Which tool a live tile is running, as a detected agent id.
+function panelTool(p) {
+  if (!p) return null;
+  if (p.kind === 'claude') return 'claude';
+  if (p.kind === 'run') {
+    const c = String(p.command || '').trim();
+    const a = (S.agents || []).find((x) => x.bin === c);
+    return a ? a.id : null;
+  }
+  return null;
+}
+function focusedPanel() { return S.panels.find((x) => x.id === S.activeId) || null; }
+
+// One string per agent, so a habit is remembered per agent rather than globally
+// — the same shape as the launcher's Cards/Terminal memory.
+const TOOL_KEY = (item) => 'bond.agenttool.' + item.id;
+function rememberedTool(item) { try { return localStorage.getItem(TOOL_KEY(item)) || ''; } catch (_) { return ''; } }
+function rememberTool(item, toolId) { try { localStorage.setItem(TOOL_KEY(item), toolId); } catch (_) {} }
+
+function rowTool(item) {
+  const p = focusedPanel();
+  return resolveTool({
+    item,
+    remembered: rememberedTool(item),
+    focusedTool: p ? panelTool(p) : null,
+    installed: installedAgentIds(),
+  });
+}
+
+// Any agent that is not a master is one copy away from being one. A markdown
+// file the project owns is lifted — the original becomes a marked copy that
+// regenerates from the new master. Everything else — plugins, user-scope
+// files, Codex TOML — is imported, and the source is read, never written.
+async function copyToMaster(item) {
+  if (!S.project) { toast('Open a folder first — the master lands in it.'); return; }
+  const args = { projectPath: S.project.path, agentIds: installedAgentIds() };
+  const lift = item.scope === 'project' && !item.readOnly && /\.(md|markdown)$/i.test(item.filePath || '');
+  const res = lift
+    ? await api.adoptAgent({ ...args, filePath: item.filePath, platform: item.platform })
+    : await api.importAgent({ ...args, filePath: item.filePath });
+  if (!res || !res.ok) { toast((res && res.error) || 'Could not copy it.'); return; }
+  await loadLibrary(true); // force — the scan must see the new master
+  toast(`${item.slug} lives in agents/${item.slug}.md now.`);
+  if (S.overlay && S.overlay.type === 'agents') {
+    // Reopen as the master it just became, so the delivery dots light up in
+    // place — openToolList toggles, so the slot must be cleared first.
+    S.overlay.open = null; S.overlay.delivery = null;
+    const master = pickerAgents().find((a) => a.slug === item.slug && isMaster(a));
+    if (master) await openToolList(master); else renderOverlay();
+  }
+}
+
+// Make sure this agent has a copy on the tool about to run it. Delivery is
+// tool-scoped, not agent-scoped — one pass regenerates every master for that
+// one tool — which is what keeps ⌘K from quietly rewriting five other folders.
+async function ensureDelivered(item, toolId) {
+  if (!isMaster(item) || !S.project) return null;
+  const before = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
+  const was = (before && before[0]) || null;
+  // `here` is not a skip: the copy regenerates so a dialect fix (opencode's
+  // mode, say) reaches copies delivered before it. Marked files are Nami's to
+  // rewrite; `theirs` and `none` stay untouched as ever.
+  if (!was || was.state === 'theirs' || was.state === 'none' || was.state === 'via') return was;
+  // Report what delivery actually did, not what it was asked to do. Saying
+  // "delivered just now" about a write that failed is the same false claim this
+  // whole surface exists to avoid — and deliverAgents already answers per pair.
+  //
+  // It answers per pair for a refusal; a read-only folder is not a refusal but a
+  // throw, straight out of writeFileSync and through the ipc call. Uncaught, it
+  // would abort the launch after the overlay had closed: no session, no tile, no
+  // word. The session is worth having even when the copy could not be written.
+  //
+  // And a throw is not evidence about *this* agent: delivery runs every master
+  // against the tool in one pass, so an unrelated master's unwritable file
+  // rejects the whole call while ours may well have landed. Ask the disk again
+  // rather than deny a copy that is sitting there.
+  let done = null;
+  try { done = await api.deliverAgents({ projectPath: S.project.path, agentIds: [toolId] }); }
+  catch (_) {
+    try {
+      const after = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
+      const now = (after && after[0]) || null;
+      if (now && now.state === 'here') return was;   // ours landed; the throw was somebody else's
+      // A file appeared at the target that is not ours — a hand-edit between
+      // the two reads, or a partial write. Whatever it is, the tool will read
+      // it, so this is the `theirs` note and not the failure one.
+      if (now && now.state === 'theirs') return { ...was, state: 'theirs', file: now.file };
+      return { ...was, state: 'failed', file: (now && now.file) || was.file };
+    } catch (_) { return { ...was, state: 'failed' }; }
+  }
+  const mine = (done || []).find((r) => r.slug === item.slug && r.agent === toolId);
+  if (mine && mine.ok === false) return { ...was, state: mine.theirs ? 'theirs' : 'failed', file: mine.file || was.file };
+  if (!mine) return { ...was, state: 'failed' };
+  return was;
+}
+
+// What the session says about how it got here. Never silent about a file having
+// been written, never claiming one that was not. Card notes are plain text —
+// setTileNote sets innerHTML from announce(); the text itself is escaped.
+function deliveryNote(item, toolId, was) {
+  const tool = toolNameOf(toolId);
+  if (!isMaster(item)) return `${item.slug} — ${tool}'s own agent, from ${shortHome(item.filePath)}.`;
+  if (!was) return `${item.slug} on ${tool}.`;
+  if (was.state === 'theirs') {
+    return `${item.slug} on ${tool} — your own ${baseNameOf(was.file)} is there and Nami left it alone, `
+      + `so this runs your file, not agents/${item.slug}.md.`;
+  }
+  if (was.state === 'failed') {
+    return `${item.slug} could not be delivered to ${tool}${was.file ? ' at ' + shortHome(was.file) : ''} — `
+      + `it will run without the agent file unless you put one there yourself.`;
+  }
+  if (was.state === 'soon') return `Delivered ${item.slug} to ${was.file ? shortHome(was.file) : tool} just now.`;
+  return `${item.slug} on ${tool} — the copy was already there.`;
+}
+
+function announce(p, text) {
+  setTileNote(p, `<span class="tn-tx">${esc(text)}</span>`, 'ok');
+}
+
+// New session. Seed, surface and title are master's `useAgent` exactly, widened
+// to any installed tool: the seed rides the pty seeder, the panel is a terminal,
+// and the title is the weak generic one that the first prompt later replaces.
+// What is new around them is delivery and the note that reports it.
+//
+function launchAgent(item, toolId) {
+  closeOverlay();
+  withFolder(() => reallyLaunchAgent(item, toolId), item.slug);
+}
+async function reallyLaunchAgent(item, toolId) {
+  const worker = toolById(toolId);
+  if (!worker || !worker.found) { toast(`${toolNameOf(toolId)} is not on ${W.thisMac}.`); return; }
+  rememberTool(item, toolId);
+  const was = await ensureDelivered(item, toolId);
+  // How the session becomes the agent comes from the launch table, which knows
+  // two mechanics and never blurs them: flag tools (claude, opencode,
+  // antigravity) launch with --agent and the session opens already being the
+  // agent; seed tools (codex, kimi) get one summoning sentence typed in their
+  // own idiom. Both are probe-backed — see agent-launch.mjs.
+  const launch = agentLaunch(toolId, item.slug);
+  // `"<Name> session"` rather than the slug, because isGenericTitle keys on
+  // that word: a name Nami merely assembled has to stay weak enough for the
+  // first prompt, and then Claude's own transcript name, to replace it. Calling
+  // the tile `ui-polisher` froze every ⌘K session under a name nothing could
+  // improve. Not agentSession(): that stamps titleSource 'flow', the rung that
+  // does the freezing.
+  const p = startPanel({
+    ...terminalAgentOptions(worker),
+    command: worker.kind === 'claude' ? undefined
+      : launch.kind === 'flag' ? worker.bin + ' ' + launch.argv.map(shellQuote).join(' ') : worker.bin,
+    args: launch.kind === 'flag' ? [...launch.argv] : undefined,
+    title: item.name + ' session', code: code2(item.name),
+    seed: launch.kind === 'seed' ? launch.seed : undefined,
+  });
+  if (!p) return;
+  // Calvin's call: a launch that went right explains nothing — the session
+  // speaking as the agent is its own receipt. The note survives only where
+  // silence would lie: the copy could not be written, or a hand-made file won
+  // and the session is running that file, not the master.
+  if (was && (was.state === 'theirs' || was.state === 'failed')) {
+    announce(p, deliveryNote(item, toolId, was));
+  }
+}
+
+
+
+async function openAgentPicker() {
+  await loadLibrary();
+  S.overlay = { type: 'agents', query: '', hi: 0, open: null, delivery: null };
+  renderOverlay();
+  if (!S.agents) refreshAgents().then(() => { if (S.overlay && S.overlay.type === 'agents') renderOverlay(); });
+}
+
+// The ›: where this agent's copies stand across every installed tool. Read-only
+// — asking never writes.
+async function openToolList(item) {
+  const o = S.overlay;
+  if (o.open === item.slug) { o.open = null; o.delivery = null; renderOverlay(); return; }
+  o.open = item.slug; o.delivery = null; renderOverlay();
+  // A non-master's list is local arithmetic — where the file sits is the whole
+  // answer — so there is nothing to ask the disk.
+  if (!isMaster(item) || !S.project) return;
+  const rows = await api.agentDelivery({
+    projectPath: S.project.path, slug: item.slug, agentIds: installedAgentIds(),
+  });
+  if (S.overlay && S.overlay.type === 'agents' && S.overlay.open === item.slug) {
+    S.overlay.delivery = rows; renderOverlay();
+  }
+}
+
+const DELIVERY_DOT = { here: '●', soon: '○', theirs: '◐', via: '●', none: '—' };
+const DELIVERY_CLASS = { here: 'on', soon: 'soon', theirs: 'theirs', via: 'on', none: '' };
+function deliveryLine(row) {
+  if (row.state === 'here') return 'delivered · ' + shortHome(row.file);
+  if (row.state === 'soon') return 'delivered as ' + baseNameOf(row.file) + ' when it launches';
+  if (row.state === 'theirs') return 'your own ' + baseNameOf(row.file) + ' is here — it wins, the master stays out';
+  if (row.state === 'via') return 'reads ' + toolNameOf(row.via) + "'s copy";
+  return row.reason || 'runs no custom agents';
+}
+
+function toolListHtml(item) {
+  const o = S.overlay;
+  // Not a master: the file sits in one tool's folder and that tool is the whole
+  // answer. The other rows say what would change it — a copy into agents/ —
+  // which is the drawer's Copy action, not a delivery that will never happen.
+  if (!isMaster(item)) {
+    const reach = reachOf(item);
+    const act = `<div class="tool-row co-act" data-copy role="button" tabindex="0"
+        title="Copy into agents/ — becomes a master that runs on every tool">
+      <span class="tl-mark">＋</span>
+      <span class="tl-name">Copy to this folder</span>
+      <span class="tl-note">becomes agents/${esc(item.slug)}.md and runs on every tool below</span>
+      <span class="tl-dot on">›</span></div>`;
+    const rows = installedAgentIds().map((id) => {
+      const runs = reach.includes(id);
+      return `<div class="tool-row${runs ? ' picked' : ' dead'}">
+        <span class="tl-mark">${iconSvg(iconKeyFor(id) || '') || esc(code2(toolNameOf(id)))}</span>
+        <span class="tl-name">${esc(toolNameOf(id))}</span>
+        <span class="tl-note">${runs ? 'runs here — its own folder' : 'after the copy, runs here too'}</span>
+        <span class="tl-dot ${runs ? 'on' : ''}">${runs ? '●' : '—'}</span></div>`;
+    }).join('');
+    return `<div class="tool-list">${act}${rows}
+      <div class="tool-foot">${item.scope === 'plugin'
+    ? 'The plugin\'s own file is read, never written.'
+    : 'The original file is never touched.'}</div></div>`;
+  }
+  if (!o.delivery) return '<div class="tool-list"><div class="tool-foot">looking…</div></div>';
+  const rows = o.delivery.map((r) => {
+    const dead = r.state === 'none';
+    return `<div class="tool-row${dead ? ' dead' : ''}${rowTool(item) === r.agent ? ' picked' : ''}"
+        ${dead ? '' : `data-tool="${esc(r.agent)}" role="button" tabindex="0"`}>
+      <span class="tl-mark">${iconSvg(iconKeyFor(r.agent) || '') || esc(code2(toolNameOf(r.agent)))}</span>
+      <span class="tl-name">${esc(toolNameOf(r.agent))}</span>
+      <span class="tl-note">${esc(deliveryLine(r))}</span>
+      <span class="tl-dot ${DELIVERY_CLASS[r.state] || ''}">${DELIVERY_DOT[r.state] || '—'}</span></div>`;
+  }).join('');
+  return `<div class="tool-list">${rows}
+    <div class="tool-foot">Copies are regenerated from <b>agents/${esc(item.slug)}.md</b>.
+      Files without Nami's marker are somebody's hand work and are never touched.</div></div>`;
+}
+
+const PICKER_SECTIONS = ['Project agents', 'In this project'];
+
+function renderAgentPickerSheet() {
+  const o = S.overlay; const agents = pickerAgents();
+  const query = o.query.toLowerCase();
+  const filtered = agents.filter((a) => (a.slug + ' ' + a.name + ' ' + (a.description || '')).toLowerCase().includes(query));
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">❯</span>
+      <input id="ap-input" placeholder="Start a session with which agent?" value="${esc(o.query)}" /></div>
+    <div class="picker-list" id="ap-list"></div>
+    <div class="picker-foot"><span>click a row → a session as that agent</span>
+      <span><b>›</b> → run it on another tool</span></div>`, { top: true });
+  const groups = [[], []];
+  filtered.forEach((a) => {
+    const k = sortKey(a);
+    if (k === 0 || k === 1) groups[k].push(a);
+  });
+  const visible = groups[0].concat(groups[1]);
+  if (o.hi > visible.length - 1) o.hi = Math.max(0, visible.length - 1);
+  const input = q('#ap-input', modal); setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.query = input.value; o.hi = 0; o.open = null; renderOverlay(); };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const a = visible[o.hi]; const t = a && rowTool(a);
+      if (a && t) launchAgent(a, t);
+      else if (a) toast(`Nothing installed can run ${a.slug}.`);
+    }
+    if (e.key === 'ArrowDown') { o.hi = Math.min(visible.length - 1, o.hi + 1); renderOverlay(); }
+    if (e.key === 'ArrowUp') { o.hi = Math.max(0, o.hi - 1); renderOverlay(); }
+  });
+  const list = q('#ap-list', modal);
+  if (!filtered.length) {
+    list.innerHTML = agents.length
+      ? '<div class="rail-empty" style="padding:14px">No match.</div>'
+      : `<div class="rail-empty" style="padding:16px 14px"><b>No agents in this folder yet.</b><br>
+        A project agent lives in <b>agents/&lt;name&gt;.md</b>. Make one with
+        ＋ in the Library tab, or drop a file in that folder yourself.</div>`;
+    return;
+  }
+  let vi = 0;
+  groups.forEach((g, gi) => {
+    if (!g.length) return;
+    const head = document.createElement('div');
+    head.className = 'picker-sec';
+    head.textContent = PICKER_SECTIONS[gi];
+    list.appendChild(head);
+    g.forEach((a) => {
+      const i = vi++;
+      const tool = rowTool(a);
+      const row = document.createElement('div');
+      row.className = 'picker-row picker-row--go' + (i === o.hi ? ' hilite' : '') + (tool ? '' : ' dead');
+      row.title = tool ? `Start a session as ${a.slug} on ${toolNameOf(tool)}` : 'Nothing installed can run this agent';
+      row.innerHTML = `${chipHtml({ key: null, code: code2(a.slug), kind: 'agent' })}
+        <span class="col"><span class="name">${esc(a.slug)}</span>
+        <span class="desc">${esc(a.description || originLine(a, toolNameOf))}</span></span>
+        <span class="row-tool">${tool
+    ? (iconSvg(iconKeyFor(tool) || '') || '') + '<span>' + esc(toolNameOf(tool)) + '</span>'
+    : '<span>no tool for it</span>'}</span>
+        <span class="chev" role="button" tabindex="0" title="${isMaster(a) ? 'Run it on another tool' : 'Where this agent can run'}">›</span>`;
+      row.onclick = (e) => {
+        if (e.target.closest('.chev')) { openToolList(a); return; }
+        if (tool) launchAgent(a, tool);
+        else toast(`Nothing installed can run ${a.slug}.`);
+      };
+      list.appendChild(row);
+      if (o.open === a.slug) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = toolListHtml(a);
+        const block = wrap.firstElementChild;
+        block.querySelectorAll('.tool-row[data-tool]').forEach((tr) => {
+          tr.onclick = () => { rememberTool(a, tr.dataset.tool); o.open = null; o.delivery = null; renderOverlay(); };
+          tr.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tr.click(); } };
+        });
+        const cp = block.querySelector('[data-copy]');
+        if (cp) {
+          cp.onclick = () => copyToMaster(a);
+          cp.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); cp.click(); } };
+        }
+        list.appendChild(block);
+      }
+    });
+  });
+}
+
+// ---- create an agent or a skill (Library ＋ buttons) ------------------------
+// An agent takes three steps, one decision each: where it lives, whose it is,
+// what it is. A skill takes one sheet, because two of those three questions have
+// no honest answer for it — its content is identical whichever agent follows it,
+// and it can only be announced to agents that open this folder. See
+// renderCreateSkill below.
+//
+// Same overlay type throughout, so the sheet holds its place and does not replay
+// its entrance between steps. State lives on S.overlay and the sheet is rebuilt
+// on every change, so inputs must be flushed into it before any re-render — same
+// discipline as the connect flow.
+// One screen for everything. The brand question died with the drawers: a new
+// agent is a master in agents/ (Builds 1–2 made that the answer), a new skill
+// is a folder in skills/ — nothing left to ask but "what is it?".
+function openCreate(kind) {
+  S.overlay = { type: 'create', kind, platform: kind === 'agent' ? 'project' : 'claude',
+    scope: 'project', name: '', desc: '' };
+  renderOverlay(); if (!S.agents) refreshAgents();
+}
+function createHeadHtml(o) {
+  return `<div class="picker-input"><span class="prompt-mark">＋</span>
+    <span style="font-weight:700">New ${esc(o.kind)}</span>
+    <span class="ni-step">one screen</span></div>`;
+}
+function renderCreateSheet() { return renderCreateStep3(S.overlay); }
+// Who ends up knowing about a new skill or agent: only the CLIs we actually
+// write to (receivers.mjs). Skills are announced in AGENTS.md; agents are copies.
+function knowsLine(kind) {
+  const text = knowsCopy({
+    kind,
+    installed: installedAgentIds(),
+    nameOf: agentNameOf,
+    stubCount: stubCount(),
+  });
+  return text ? esc(text) : '';
+}
+function stubCount() {
+  return (S.agents || []).filter((a) => a.found && a.contextFile && a.contextFile !== 'AGENTS.md').length;
+}
+function renderCreateStep3(o) {
+  const worker = chosenAgent(o);
+  // the path already says which platform and whose it is — repeating them just wraps the line
+  const dir = shortHome(targetDirFor({ type: o.kind, platform: o.platform, scope: o.scope, projectPath: S.project && S.project.path }));
+  const skill = o.kind === 'skill';
+  // The description placeholder is two paragraphs: a worked example, then the
+  // reason the box is big. &#10; keeps the break inside the attribute.
+  const descPh = 'e.g. keeps the README honest after a batch of features lands: reads the merged'
+    + ' diffs, rewrites the affected doc sections, and flags anything it isn’t sure about.'
+    + '&#10;&#10;The more you write here, the better the first draft.';
+  const modal = overlay('picker-box create', `${createHeadHtml(o)}
+    <div class="ni-ask">What is it?</div>
+    <div class="ni-field">
+      <input id="ni-name" placeholder="Name your ${skill ? 'skill' : 'agent'}" value="${esc(o.name)}" /></div>
+    <div class="ni-field"><span class="lbl">What should it do?</span>
+      <textarea id="ni-desc" placeholder="${descPh}">${esc(o.desc)}</textarea></div>
+    <div class="ni-where">it lands in <b>${esc(dir)}</b></div>
+    ${knowsLine(o.kind) ? `<div class="ni-where ni-knows">${knowsLine(o.kind)}</div>` : ''}
+    <div class="ni-agent" style="margin:10px 18px 0">${worker
+      ? `a new session with <select class="agent-pick" id="ni-agent-sel">${agentOptionsHtml(worker.id)}</select> builds it with you`
+      : W.noAgentYet}</div>
+    <div class="ni-row ni-actions"><button class="btn btn--go" id="ni-create" ${worker ? '' : 'disabled'}>Build it with my agent</button>
+      <span class="action" id="ni-blank" role="button" tabindex="0">write it myself</span></div>`, { top: true });
+  const nameInput = q('#ni-name', modal), descInput = q('#ni-desc', modal);
+  const keep = () => { o.name = nameInput.value; o.desc = descInput.value; };
+  // agent detection can land mid-typing and re-render this sheet; keeping o in sync on every
+  // keystroke means a rebuild never eats what was typed.
+  nameInput.oninput = keep; descInput.oninput = keep;
+  const agentSel = q('#ni-agent-sel', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
+  if (!o.focused) { o.focused = true; setTimeout(() => descInput.focus(), 30); }
+  q('#ni-create', modal).onclick = () => {
+    keep();
+    const w = chosenAgent(o);
+    if (!o.desc.trim()) { toast('Describe what it should do first.'); return; }
+    if (!w) { toast(W.noAgentYet); return; }
+    if (!S.project) { toast(`Open a folder first — ${skill ? 'skills' : 'agents'} live in the project.`); return; }
+    const seed = buildCreateSeed({ type: o.kind, platform: o.platform, scope: o.scope, name: o.name, desc: o.desc, projectPath: S.project && S.project.path });
+    closeOverlay();
+    // The agent writes the file, so the follow-through can only run afterwards.
+    // On exit is the honest moment; and if the session never exits, the rail
+    // still shows the item, just not yet announced or delivered.
+    const onExit = o.kind === 'skill'
+      ? () => { loadLibrary(true); api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() }).then(() => refreshPointer(true)); }
+      : () => { loadLibrary(true); api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() }); };
+    agentSession(w, { title: 'build: ' + (o.name.trim() || o.kind), code: 'BD', seed, onExit });
+    toast('Your agent has a few questions first — check the new tile.');
+  };
+  const blankLink = q('#ni-blank', modal);
+  blankLink.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); blankLink.onclick(); } });
+  blankLink.onclick = async () => {
+    keep();
+    if (!o.name.trim()) { toast('Give it a name first.'); return; }
+    if (!S.project) { toast(`Open a folder first — ${skill ? 'skills' : 'agents'} live in the project.`); return; }
+    const res = await api.libraryCreate({ projectPath: S.project.path, type: o.kind, platform: o.platform, scope: o.scope, name: o.name.trim(), agentIds: installedAgentIds() });
+    if (!res.ok) { toast(res.error || 'Could not create'); return; }
+    closeOverlay();
+    // An item nobody has been told about is just a file. Announce or deliver
+    // in the same breath as writing it, or "write it myself" leaves you half done.
+    if (o.kind === 'skill') {
+      const w = await api.pointerWrite({ dir: S.project.path, agentIds: installedAgentIds() });
+      toast(w && w.ok ? `Created ${o.name.trim()} — ${(w.written || []).length ? w.written.join(', ') + ' updated' : 'already announced'}.` : 'Created ' + o.name.trim());
+      refreshPointer(true);
+    } else {
+      const copies = (res.delivered || []).filter((r) => r.ok && r.file).length;
+      toast(`Created ${o.name.trim()}${copies ? ` — ${copies} ${copies === 1 ? 'copy' : 'copies'} delivered` : ''}.`);
+    }
+    S.railTab = 'library'; loadLibrary(true).then(() => renderRail());
+    openCard(res.item);
+  };
+  // The description is a writing box now, so Enter belongs to it: a newline,
+  // never a submit — Enter-submits was the reason it could never grow. Build
+  // is ⌘/Ctrl+Enter from either field; a bare Enter on the name still just
+  // moves you into the description.
+  const submitKey = (e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey);
+  nameInput.addEventListener('keydown', (e) => {
+    if (submitKey(e)) { e.preventDefault(); q('#ni-create', modal).onclick(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); descInput.focus(); }
+  });
+  descInput.addEventListener('keydown', (e) => {
+    if (submitKey(e)) { e.preventDefault(); q('#ni-create', modal).onclick(); }
+  });
+}
+
+// ---- improve an existing library item with the user's own agent ------------
+function openImproveItem(item) { S.overlay = { type: 'improve-item', item, text: '' }; renderOverlay(); if (!S.agents) refreshAgents(); }
+function renderImproveItem() {
+  const o = S.overlay, item = o.item;
+  const worker = chosenAgent(o);
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" data-kind="${esc((TYPE_CHIP[item.type] || TYPE_CHIP.agent).kind)}">${esc(code2(item.name))}</span>
+      <span class="col"><span class="name">Improve ${esc(item.name)}</span><span class="desc">${esc(item.platform + ' ' + item.type)}</span></span></div>
+    <input class="text-input" id="imp-ask" placeholder="what should change? e.g. give it a real description and sharper instructions" spellcheck="false" />
+    <div class="ni-agent">${worker
+      ? `a new session with <select class="agent-pick" id="imp-agent">${agentOptionsHtml(worker.id)}</select> edits it for you`
+      : W.noAgentYet}</div>
+    <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="imp-go" ${worker ? '' : 'disabled'}>Go</button></div>`);
+  const input = q('#imp-ask', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.text = input.value; };
+  const agentSel = q('#imp-agent', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
+  const go = () => {
+    const w = chosenAgent(o);
+    if (!o.text.trim() || !w) { if (!o.text.trim()) toast('Say what should change first.'); return; }
+    closeOverlay();
+    // An improved master must reach every tool's copy the moment the session
+    // ends — the same on-exit rhythm the skills pointer uses.
+    const onExit = item.type === 'agent' && item.platform === 'project' && S.project
+      ? () => { loadLibrary(true); api.deliverAgents({ projectPath: S.project.path, agentIds: installedAgentIds() }); }
+      : undefined;
+    agentSession(w, { title: 'improve: ' + item.slug, code: 'IM', seed:
+      buildImproveSeed({ platform: item.platform, type: item.type, filePath: item.filePath, ask: o.text }), onExit });
+    toast('Your agent is on it. Reopen the card when it finishes.');
+  };
+  q('#imp-go', modal).onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+}
+
+// ---- overlays --------------------------------------------------------------
+let lastOverlayType = null; // same-type re-renders skip the entrance animation
+let overlayDispose = null;
+// The peek sheet mounts an editor into a rec that never joins tileEls, so a
+// file changing on disk while it is floating would otherwise have nowhere to
+// land. Cleared with the overlay, like overlayDispose.
+let peekRec = null;
+let helpReturnFocus = null;
+let helpFocusKey = null;
+function rememberHelpFocus() {
+  if (!S.overlay || !['settings', 'quickstart'].includes(S.overlay.type)) helpReturnFocus = document.activeElement;
+}
+function renderOverlay() {
+  browsers.schedule();
+  terminalHint.hide();
+  const focused = document.activeElement;
+  helpFocusKey = focused && els.overlayRoot.contains(focused)
+    ? { id: focused.id, section: focused.dataset.sec } : null;
+  if (overlayDispose) { overlayDispose(); overlayDispose = null; }
+  peekRec = null;
+  els.overlayRoot.innerHTML = ''; const o = S.overlay;
+  overlayStill = !!o && o.type === lastOverlayType;
+  lastOverlayType = o ? o.type : null;
+  if (!o) {
+    if (helpReturnFocus && helpReturnFocus.isConnected) helpReturnFocus.focus({ preventScroll: true });
+    helpReturnFocus = null;
+    return;
+  }
+  if (!['settings', 'quickstart'].includes(o.type)) helpReturnFocus = null;
+  if (o.type === 'browser-new') return browsers.renderNew();
+  if (CONNECT_OVERLAYS.has(o.type)) return mcpSetup().render();
+  if (o.type === 'browser-note') return browsers.renderNote();
+
+  if (o.type === 'insertion-history') return renderInsertionHistory();
+  if (o.type === 'browser-profiles') return browsers.renderProfiles();
+  if (o.type === 'browser-import') return browsers.renderImport();
+  if (o.type === 'selection-draft') return renderSelectionDraft();
+  if (o.type === 'launcher') return renderLauncher();
+  if (o.type === 'folder-first') return renderFolderFirst();
+  if (o.type === 'peek') return renderPeek();
+  if (o.type === 'agent-setup') return renderAgentSetup();
+  if (o.type === 'agent-remove') return renderAgentRemove();
+  if (o.type === 'agents') return renderAgentPickerSheet();
+  if (o.type === 'create') return renderCreateSheet();
+  if (o.type === 'improve-item') return renderImproveItem();
+  if (o.type === 'fs-name') return renderFsName();
+  if (o.type === 'switch-folder') return renderSwitchChoice();
+  if (o.type === 'settings') return renderSettings();
+  if (o.type === 'quickstart') return renderQuickStart();
+}
+function closeOverlay() { S.overlay = null; renderOverlay(); }
+
+// ===========================================================================
+//  Settings — the one place the app explains how it behaves
+// ===========================================================================
+const SET_SECTIONS = [
+  { id: 'voice', name: 'Voice', lead: 'how Bond hears you' },
+  { id: 'look', name: 'Look', lead: 'how Bond looks on this desk' },
+  { id: 'keys', name: 'Keys', lead: 'keys for permitted agents and Voice' },
+  { id: 'shortcuts', name: 'Shortcuts', lead: 'small moves that make your desk easier to use' },
+  { id: 'browser', name: 'Browser', lead: 'browser views your sessions can use' },
+  { id: 'usage', name: 'Usage', lead: 'remaining allowance by connected account' },
+  { id: 'about', name: 'About', lead: 'about this copy of Bond' },
+];
+function openSettings(section) {
+  rememberHelpFocus();
+  S.overlay = { type: 'settings', section: section || 'voice', draft: {}, test: null };
+  renderOverlay();
+  // both are cheap and let the sheet paint immediately with what we already know
+  refreshSttInfo().then(() => { if (isSettingsOpen()) renderOverlay(); });
+  api.settingsGet().then((s) => { if (isSettingsOpen()) { S.overlay.saved = s; renderOverlay(); } });
+}
+function isSettingsOpen() { return !!S.overlay && S.overlay.type === 'settings'; }
+
+function renderSettings() {
+  const o = S.overlay;
+  const sec = SET_SECTIONS.find((s) => s.id === o.section) || SET_SECTIONS[0];
+  const modal = overlay('modal modal--settings' + (sec.id === 'shortcuts' ? ' modal--shortcuts' : ''), `
+    <div class="modal-head"><span class="col">
+      <span class="title">Settings</span>
+      <span class="sub">${esc(sec.lead)}</span></span></div>
+    <div class="modal-body"><div class="set-wrap">
+      <div class="set-nav">${SET_SECTIONS.map((s) =>
+        `<button class="rail-tab${s.id === sec.id ? ' active' : ''}" data-sec="${s.id}"${s.id === sec.id ? ' aria-current="page"' : ''}>${helpIcon(s.id)}<span>${esc(s.name)}</span></button>`).join('')}</div>
+      <div class="set-pane" id="set-pane">${
+        sec.id === 'voice' ? voicePaneHtml()
+          : sec.id === 'look' ? lookPaneHtml()
+            : sec.id === 'browser' ? browsers.settingsHtml() : sec.id === 'usage' ? usagePaneHtml() : sec.id === 'about' ? aboutPaneHtml() : sec.id === 'shortcuts' ? shortcutsPaneHtml() : keysPaneHtml()}</div>
+    </div></div>
+    <div class="modal-foot">${sec.id === 'voice' ? voiceFootHtml() : sec.id === 'shortcuts' ? '<span class="note">' + esc(W.keyLegend) + '</span><button class="shortcuts-link" id="shortcuts-guide">Full guide ↗</button>' : '<span class="note">Saved on ' + W.thisMac + ' only, nothing syncs.</span>'}
+      <button class="btn btn--go" id="set-done">Done</button></div>`);
+
+  modal.querySelectorAll('.set-nav .rail-tab').forEach((b) => {
+    b.onclick = () => { keepDraft(modal); o.section = b.dataset.sec; renderOverlay(); };
+  });
+  q('#set-done', modal).onclick = async () => { await saveVoiceDraft(modal); closeOverlay(); };
+  if (sec.id === 'voice') wireVoicePane(modal);
+  if (sec.id === 'look') wireLookPane(modal);
+  if (sec.id === 'keys') wireKeysPane(modal);
+  if (sec.id === 'about') wireAboutPane(modal);
+  if (sec.id === 'browser') browsers.wireSettings(modal);
+  if (sec.id === 'usage') wireUsagePane(modal);
+  if (sec.id === 'shortcuts') {
+    q('#shortcuts-back', modal).onclick = closeOverlay;
+    q('#shortcuts-guide', modal).onclick = () => api.openUrl(DOCS.home);
+  }
+  wireHelpDialog(modal);
+}
+
+// Settings and Quick Start are keyboard-accessible help surfaces. Preserve the
+// focused control across async Settings refreshes and return to the invoker.
+function wireHelpDialog(modal) {
+  const title = q('.title', modal);
+  title.id = 'help-dialog-title';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', title.id);
+  modal.tabIndex = -1;
+  q('.ov-x', modal).setAttribute('aria-label', 'Close dialog');
+  modal.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const controls = Array.from(modal.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'))
+      .filter((el) => el.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!first) { e.preventDefault(); return; }
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modal)) { e.preventDefault(); first.focus(); }
+  });
+  let target = helpFocusKey && helpFocusKey.id ? document.getElementById(helpFocusKey.id) : null;
+  if ((!target || !modal.contains(target)) && helpFocusKey && helpFocusKey.section) {
+    target = Array.from(modal.querySelectorAll('[data-sec]')).find((b) => b.dataset.sec === helpFocusKey.section);
+  }
+  (target && modal.contains(target) ? target : modal).focus({ preventScroll: true });
+}
+
+function shortcutsPaneHtml() {
+  const row = ([label, keys, sub]) => `<div class="shortcut-row"><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+    <span class="shortcut-keys">${keys.map((key) => key === 'click' ? '<span>+ click</span>' : `<kbd>${esc(key)}</kbd>`).join('')}</span></div>`;
+  return `<h1 class="shortcuts-title">Shortcuts &amp; gestures</h1>
+    <p class="shortcuts-intro">Small moves that make your desk easier to use.</p>
+    <div class="shortcuts-hero">${helpIcon('link')}<div><h2>Open what your agent makes.</h2>
+      <p>${esc(OPEN_OUTPUT_COPY)}</p><button class="shortcuts-link" id="shortcuts-back">Back to my desk →</button></div></div>
+    ${SHORTCUT_GROUPS.map((group) => `<section class="shortcut-group"><h2>${helpIcon(group.icon)}${esc(group.title)}</h2>
+      ${group.rows.map(row).join('')}${group.note ? `<p class="shortcuts-note">${esc(group.note)}</p>` : ''}</section>`).join('')}
+    <p class="shortcuts-note">Shortcuts inside an agent’s terminal can vary by agent. This reference covers Bond’s controls.</p>`;
+}
+
+// ---- Voice -----------------------------------------------------------------
+function voiceRows() {
+  return ((S.sttInfo && S.sttInfo.providers) || []).slice();
+}
+// No explicit choice yet means the app is running on whatever resolved first;
+// show that as picked so the sheet never looks like nothing is selected.
+function pickedVoiceId() {
+  const o = S.overlay, info = S.sttInfo || {};
+  const want = (o && o.pick) || info.chosen || info.active || 'local';
+  // a retired choice (old 'custom' / 'clipboard' settings) falls back gracefully
+  return voiceRows().some((p) => p.id === want) ? want : (info.active || 'local');
+}
+
+function voicePaneHtml() {
+  const o = S.overlay, picked = pickedVoiceId();
+  const rows = voiceRows().map((p) => {
+    const on = p.id === picked;
+    return `<div class="set-opt-wrap">
+      <button class="theme-opt set-opt${on ? ' picked' : ''}" data-p="${esc(p.id)}">
+        <span class="theme-dot"></span>
+        <span class="set-opt-col"><span class="theme-name">${esc(p.label)}</span>
+          <span class="set-opt-desc">${esc(p.blurb || '')}</span></span>
+        <span class="set-flag ${p.ready ? 'ok' : 'wait'}">${esc(voiceFlag(p))}</span>
+      </button>
+      ${on ? voiceRowBodyHtml(p) : ''}</div>`;
+  }).join('');
+  // no heading here — the sheet's subtitle already says what this pane is
+  return rows;
+}
+// The proof lives in the footer so it is on screen whatever the list is doing.
+function voiceFootHtml() {
+  const o = S.overlay, active = voiceRows().find((p) => p.id === pickedVoiceId());
+  return `<button class="btn" id="set-mic" ${active && active.ready ? '' : 'disabled'}>◉ Test the mic</button>
+    <span class="set-result" id="set-result">${esc(o.test || 'say something and Bond will type it back')}</span>`;
+}
+function voiceFlag(p) {
+  // Ready on a key Nami never saved means the key arrived on the environment
+  // this run was launched with. That is true right now and worth saying, but it
+  // is not durable: user-path.js merges the login shell's PATH into a Dock
+  // launch and nothing else, so from the Dock the variable is absent and this
+  // same provider reports "no API key". Saying only "ready" is what made Voice
+  // and Keys look like they disagreed about the same key.
+  if (p.ready && p.needsKey && !p.keySaved) return 'ready · from your shell';
+  if (p.ready) return 'ready';
+  if (p.downloadBytes) return mb(p.downloadBytes) + ' to download';
+  return p.reason || 'not set up';
+}
+function mb(bytes) { return Math.round(bytes / 1e6) + ' MB'; }
+
+// What a download is doing, said in the units the event actually carries.
+// stt-model counts FILES: { phase: 'download', done: 3, total: 7 }. This used
+// to read that 7 as a byte total and print `mb(0) of mb(7)` — "0 MB of 0 MB",
+// for the entire download, alongside a `loaded` field that has never existed.
+// Real byte progress would mean streaming each file against its content-length;
+// it is not worth it here, because two of the seven files are ~95% of the bytes,
+// so a byte counter would stall twice for a long time and say less than this.
+// Returns null when there is nothing to say, so the caller leaves the note as is.
+function dlProgressText(ev) {
+  if (!ev) return null;
+  if (ev.phase === 'load') return 'Getting the model ready…';
+  if (!ev.total) return null;
+  return `${ev.done || 0} of ${ev.total} files…`;
+}
+
+// The picked row is the only one that opens: a pointer to the Keys tab when the
+// key is missing, or a download button. Keys are typed in exactly one place —
+// the Keys tab — so a ready provider shows nothing extra at all.
+function voiceRowBodyHtml(p) {
+  if (p.needsKey && !p.ready) {
+    return `<div class="set-opt-body"><div class="setup-note">needs your ${esc(p.keyEnv)} —
+        <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">add it in Keys</span></div>
+      ${p.keyHelpUrl ? `<div class="sv-help" data-url="${esc(p.keyHelpUrl)}">where do I find my key?</div>` : ''}</div>`;
+  }
+  // Usable, but on a key Nami is not holding. The row says where it came from
+  // and what would make it survive the next launch.
+  if (p.needsKey && p.ready && !p.keySaved) {
+    return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Nami was started in.
+        Open Bond from the ${W.dock} and it will not be there.
+        <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">Save it in Keys</span> to make it stick.</div></div>`;
+  }
+  if (p.id === 'local' && !p.ready && p.downloadBytes) {
+    return `<div class="set-opt-body">
+      <button class="btn" id="set-dl">Download the model (${esc(mb(p.downloadBytes))})</button>
+      <div class="setup-note" id="set-dl-note">One time. After this, dictation works with no network and no account.</div></div>`;
+  }
+  return '';
+}
+
+// Inputs are read back before any re-render, because the sheet is rebuilt whole.
+function keepDraft(modal) {
+  const o = S.overlay; if (!o || o.type !== 'settings') return;
+  modal.querySelectorAll('.set-key').forEach((inp) => { o.draft[inp.dataset.k] = inp.value.trim(); });
+}
+async function saveVoiceDraft(modal) {
+  const o = S.overlay; if (!o) return;
+  keepDraft(modal);
+  const patch = {};
+  for (const [k, v] of Object.entries(o.draft)) patch[k] = v === '' ? null : v;
+  if (o.pick) patch.sttProvider = o.pick;
+  if (!Object.keys(patch).length) return;
+  const res = await api.settingsSet(patch);
+  if (res && res.ok) { setSttInfo(res.sttInfo); o.draft = {}; }
+  else toast('Could not save: ' + (res && res.error || '?'));
+}
+
+function wireVoicePane(modal) {
+  const o = S.overlay;
+  modal.querySelectorAll('.set-opt').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.p === pickedVoiceId()) return;
+      keepDraft(modal); o.pick = b.dataset.p; o.test = null;
+      await saveVoiceDraft(modal);
+      renderOverlay();
+    };
+  });
+  modal.querySelectorAll('.sv-help[data-url]').forEach((el) => { el.onclick = () => api.openUrl(el.dataset.url); });
+  // "add it in Keys" jumps to the Keys tab with that key's row already open
+  modal.querySelectorAll('.go-keys').forEach((el) => {
+    el.onclick = () => {
+      o.section = 'keys'; o.editKey = el.dataset.keyenv; renderOverlay();
+      const i = q('#key-edit-val'); if (i) i.focus();
+    };
+  });
+  const dl = q('#set-dl', modal);
+  if (dl) dl.onclick = async () => {
+    dl.disabled = true; dl.textContent = 'Downloading…';
+    const off = api.onSttProgress((ev) => {
+      const note = q('#set-dl-note', modal);
+      const line = dlProgressText(ev);
+      if (note && line) note.textContent = line;
+    });
+    const res = await api.sttPrepare();
+    off();
+    await refreshSttInfo();
+    // `fault` is the engine failing to start (Windows, see stt.js) — the download worked
+    if (!res || !res.ok) toast(res && res.fault ? res.error : 'Download failed: ' + (res && res.error || '?'));
+    if (isSettingsOpen()) renderOverlay();
+  };
+  const mic = q('#set-mic', modal);
+  if (mic) mic.onclick = () => toggleSettingsMic(modal);
+}
+
+// Record here in the sheet and show the words. It is the whole proof that voice
+// works, without having to open a session first.
+let settingsRec = null;
+function toggleSettingsMic(modal) {
+  const o = S.overlay, btn = q('#set-mic', modal), out = q('#set-result', modal);
+  if (settingsRec) { try { settingsRec.stop(); } catch (_) {} return; }
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+    const rec = new MediaRecorder(stream), chunks = [];
+    settingsRec = rec;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      settingsRec = null;
+      stream.getTracks().forEach((t) => t.stop());
+      if (btn) { btn.textContent = '◉ Test the mic'; btn.classList.remove('rec'); }
+      if (out) out.textContent = 'transcribing…';
+      const res = await transcribeBlob(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+      o.test = res && res.ok ? (res.text || '(silence)') : 'failed — ' + (res && res.error || '?');
+      if (isSettingsOpen()) renderOverlay();
+    };
+    rec.start();
+    if (btn) { btn.textContent = '■ Stop'; btn.classList.add('rec'); }
+    if (out) out.textContent = 'listening — say something, then stop.';
+    // a forgotten recording shouldn't run forever
+    setTimeout(() => { if (settingsRec === rec) { try { rec.stop(); } catch (_) {} } }, 15000);
+  }).catch((e) => { o.test = 'Mic error: ' + micErrorText(e, api.platform); renderOverlay(); });
+}
+
+// ---- Look ------------------------------------------------------------------
+function lookPaneHtml() {
+  return `<div class="field-label">appearance</div>` + THEME_OPTIONS.map((t) =>
+    `<button class="theme-opt set-opt${currentTheme() === t.id ? ' picked' : ''}" data-theme-id="${t.id}" aria-pressed="${currentTheme() === t.id}">
+      <span class="theme-dot"></span>
+      <span class="set-opt-col"><span class="theme-name">${esc(t.name)}</span>
+        <span class="set-opt-desc">${esc(t.desc)}</span></span></button>`).join('');
+}
+function wireLookPane(modal) {
+  modal.querySelectorAll('[data-theme-id]').forEach((b) => {
+    b.onclick = () => {
+      const theme = b.dataset.themeId;
+      setTheme(theme);
+      // setTheme rebuilds Settings; keep keyboard navigation on the new row.
+      q(`.set-opt[data-theme-id="${theme}"]`)?.focus({ preventScroll: true });
+    };
+  });
+}
+
+// ---- About — which copy is this, and is it behind? -------------------------
+// The version was nowhere in the app, which made two builds of the same number
+// indistinguishable from inside it. The date is when this copy landed in
+// Applications, not when it was compiled: the same release installs on two
+// machines weeks apart, and "when did I last update" is the question people
+// actually ask.
+//
+// Checking by hand matters beyond reassurance. Dismissing the update bar writes
+// that version off for good (see SKIPPED_UPDATE below), and until now there was
+// no way back to it. Pressing the button clears the mark.
+const REPO_URL = 'https://github.com/Krishna5567/BOND';
+// The doc pages the quick start points at. One page per row, so a reader lands
+// on the answer to the row they pressed rather than on a contents page they
+// then have to search. Kept next to REPO_URL so every outward link Nami has is
+// read in one place.
+const DOCS = {
+  home: 'https://github.com/Krishna5567/BOND#readme',
+  start: 'https://github.com/Krishna5567/BOND#readmestart/',
+  pickAgent: 'https://github.com/Krishna5567/BOND#readmepick-an-agent/',
+  examples: 'https://github.com/Krishna5567/BOND#readmeexamples/',
+  permissions: 'https://github.com/Krishna5567/BOND#readmepermissions/',
+};
+// Where the app sends people who want the person rather than the program.
+//
+// Nami has no telemetry and is not getting any — "nothing leaves your Mac" is
+// one of the three reasons anyone trusts it, and it cannot be un-spent. So the
+// UTM is the entire measurement story: it costs nothing, it is visible to
+// anyone who reads the link, and dainami.ai's own analytics reads it at the
+// other end. `where` names the surface, so "does the empty desk ever get
+// clicked" has an answer without a single byte leaving the machine.
+//
+// GitHub links stay bare on purpose: there is no analytics there to read them.
+const makerUrl = (where) => `https://github.com/Krishna5567/BOND`;
+const teamsUrl = (where) => `https://github.com/Krishna5567/BOND`;
+function updatedOn(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  // hour12 forced: the machine's locale decides otherwise, and "18:55" next to a
+  // handwritten heading reads as a log line rather than a date on a page.
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLowerCase().replace(/\s+/g, '');
+  return `updated ${day} at ${time}`;
+}
+// Four states, and the difference between the last two is the whole point:
+// GitHub said no, versus GitHub never answered.
+function aboutLine(a) {
+  if (!a || !a.state) return { dot: 'off', text: 'Not checked yet', act: 'Check now' };
+  if (a.state === 'checking') return { dot: 'off', text: 'Checking…', act: 'Check now', busy: true };
+  // a.latest is the one on offer; a.version stays the one running
+  if (a.state === 'update') return { dot: 'new', text: `Bond ${a.latest} is out`, act: 'Download', get: a.url };
+  if (a.state === 'offline') return { dot: 'off', text: "Couldn't reach GitHub", act: 'Try again' };
+  return { dot: 'ok', text: 'Up to date', act: 'Check now' };
+}
+function aboutPaneHtml() {
+  const a = (S.overlay && S.overlay.about) || null;
+  const version = (a && a.version) || S.version || '';
+  const line = aboutLine(a);
+  const notes = version ? `${REPO_URL}/releases/tag/v${encodeURIComponent(version)}` : `${REPO_URL}/releases`;
+  return `<div class="ab-name">Bond${version ? ' ' + esc(version) : ''}</div>
+    <div class="ab-built">${esc(updatedOn((a && a.updatedAt) || S.updatedAt) || 'this copy')}</div>
+    <hr class="ab-rule" />
+    <div class="ab-state">
+      <span class="ab-status"><span class="ab-dot ab-dot--${line.dot}"></span>${esc(line.text)}</span>
+      <button class="btn" id="ab-act"${line.busy ? ' disabled' : ''}>${esc(line.act)}</button>
+    </div>
+    <div class="ab-star">
+      <button class="btn btn--go" data-url="${REPO_URL}">★ Star Bond on GitHub</button>
+    </div>
+    <div class="ab-links">
+      <a class="ab-link" href="#" data-url="${esc(notes)}">What's new${version ? ' in ' + esc(version) : ''} <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}">Source on GitHub <span class="arr">↗</span></a>
+      <a class="ab-link" href="#" data-url="${REPO_URL}/blob/master/LICENSE">Apache License 2.0 <span class="arr">↗</span></a>
+    </div>
+    <hr class="ab-rule" />
+    <div class="ab-made">Made by <a class="ab-link" href="#" data-url="${makerUrl('about')}">Bond</a>.</div>
+    <div class="ab-copy">© 2026 Bond AI · Apache 2.0 licensed</div>
+    <div class="ab-team">
+      <button class="btn btn--quiet" data-url="${teamsUrl('about')}">Want Bond for your team? →</button>
+    </div>`;
+}
+function wireAboutPane(modal) {
+  const o = S.overlay;
+  // [data-url] rather than .ab-link[data-url]: the star and team buttons carry
+  // the same attribute, and a selector that only matched the text links would
+  // have left both of them silently dead.
+  modal.querySelectorAll('[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+  const act = q('#ab-act', modal);
+  if (!act) return;
+  act.onclick = async () => {
+    const a = o.about;
+    // Downloading from here is the same download as the bar's, not a second
+    // one: re-arm the bar with what the pane is showing and let the progress
+    // land there, so closing Settings does not lose sight of it.
+    if (a && a.state === 'update' && a.url) {
+      offered = { version: a.latest, url: a.url };
+      paintUpdate('downloading', { percent: 0, version: a.latest });
+      await api.downloadUpdate();
+      return;
+    }
+    o.about = { ...(a || {}), state: 'checking' };
+    renderOverlay();
+    const res = await api.updateStatus();
+    // Asking by hand un-dismisses: whatever was waved away before is fair game
+    // again, or the bar could never come back for that version.
+    if (res && res.state === 'update') localStorage.removeItem(SKIPPED_UPDATE);
+    if (isSettingsOpen()) { S.overlay.about = res || { state: 'offline' }; renderOverlay(); }
+  };
+}
+
+// ---- Models ----------------------------------------------------------------
+// ---- Keys — named secrets for permitted agents and Voice -------------------
+// Saved keys override inherited values only for explicitly permitted consumers.
+// Agent CLIs (Claude Code, OpenCode…) carry their own logins — no API key here,
+// except Grok, whose API-key path is the XAI_API_KEY env var.
+const SUGGESTED_KEYS = [
+  { name: 'OPENAI_API_KEY', hint: 'backs Voice · OpenAI Whisper' },
+  { name: 'ELEVENLABS_API_KEY', hint: 'backs Voice · ElevenLabs Scribe' },
+  { name: GROK_API_KEY, hint: 'backs Grok · console.x.ai' },
+];
+function keyRowHtml({ name, value, sub, actions }) {
+  return `<div class="key-row" data-key="${esc(name)}">
+    <span class="k-name" title="${esc(name)}">${esc(name)}</span>
+    <span class="k-val${sub ? ' k-sub' : ''}">${esc(value)}</span>
+    ${actions.map((a) => `<button class="k-act" data-act="${a}">${a}</button>`).join('')}</div>`;
+}
+// Edit mode keeps the row: the current (masked) value stays visible above the
+// input, and cancel / Escape put everything back exactly as it was.
+function keyEditRowHtml(name, current) {
+  return `<div class="key-row" data-key="${esc(name)}"><span class="k-name">${esc(name)}</span>
+    <span class="k-val${current ? '' : ' k-sub'}">${esc(current || 'not set yet')}</span>
+    <input class="text-input k-input" id="key-edit-val" type="password" placeholder="paste the ${current ? 'new ' : ''}secret…" spellcheck="false" />
+    <button class="k-act k-save" data-act="save">save</button>
+    <button class="k-act" data-act="cancel">cancel</button></div>`;
+}
+function keysPaneHtml() {
+  const o = S.overlay;
+  if (!o.keys) return '<p class="setup-copy">Looking for your keys…</p>';
+  const stored = o.keys.stored, have = new Set(stored.map((k) => k.name));
+  const rows = [];
+  for (const k of stored) {
+    if (o.editKey === k.name) {
+      rows.push(keyEditRowHtml(k.name, k.masked));
+    } else if (o.reveal && o.reveal.name === k.name) {
+      rows.push(keyRowHtml({ name: k.name, value: o.reveal.value, actions: ['hide', 'edit', 'remove'] }));
+    } else {
+      rows.push(keyRowHtml({ name: k.name, value: k.masked, actions: ['show', 'edit', 'remove'] }));
+    }
+  }
+  for (const s of SUGGESTED_KEYS) {
+    if (have.has(s.name)) continue;
+    if (o.editKey === s.name) rows.push(keyEditRowHtml(s.name, ''));
+    else rows.push(keyRowHtml({ name: s.name, value: 'not set — ' + s.hint, sub: true, actions: ['add'] }));
+  }
+  return `<p class="setup-copy">Saved keys are shared only with permitted agents. Terminals and installers receive no known API keys from Nami. Voice reads its provider keys from this same store.</p>
+    ${rows.join('')}
+    <div class="key-row key-row--new">
+      <input class="text-input k-input k-name-input" id="key-new-name" placeholder="MY_SERVICE_KEY" spellcheck="false" />
+      <input class="text-input k-input" id="key-new-val" type="password" placeholder="paste the secret…" spellcheck="false" />
+      <button class="k-act k-save" id="key-new-save">save</button></div>
+    <div class="key-note">saved in <span class="k-open" id="key-note-open">settings.json</span> — click to see the file</div>`;
+}
+function refreshKeys() {
+  return api.keysGet().then((res) => {
+    if (isSettingsOpen()) { S.overlay.keys = res; renderOverlay(); }
+  });
+}
+function wireKeysPane(modal) {
+  const o = S.overlay;
+  if (o.keys === undefined) { o.keys = null; refreshKeys(); }
+  const saveKey = async (name, input) => {
+    const v = input.value.trim();
+    if (!v) { toast('Paste the secret first.'); return; }
+    const res = await api.keysSet(name, v);
+    if (!res.ok) { toast(res.error || 'Could not save it.'); return; }
+    o.editKey = null; o.reveal = null;
+    toast(`${name} saved — permitted agents and Voice can use it.`);
+    refreshKeys(); refreshSttInfo(); // Voice's ready flags read the same store
+  };
+  modal.querySelectorAll('.key-row .k-act').forEach((b) => {
+    const name = b.closest('.key-row').dataset.key;
+    const act = b.dataset.act;
+    b.onclick = async () => {
+      if (act === 'add' || act === 'edit') { o.editKey = name; o.reveal = null; renderOverlay(); const i = q('#key-edit-val'); if (i) i.focus(); }
+      else if (act === 'save') saveKey(name, q('#key-edit-val', modal));
+      else if (act === 'cancel') { o.editKey = null; renderOverlay(); }
+      else if (act === 'show') { const r = await api.keysReveal(name); o.reveal = { name, value: r.value }; renderOverlay(); }
+      else if (act === 'hide') { o.reveal = null; renderOverlay(); }
+      else if (act === 'remove') { o.reveal = null; await api.keysDelete(name); toast(`${name} removed.`); refreshKeys(); refreshSttInfo(); }
+    };
+  });
+  const editInput = q('#key-edit-val', modal);
+  if (editInput) editInput.onkeydown = (e) => {
+    if (e.key === 'Enter') saveKey(o.editKey, editInput);
+    if (e.key === 'Escape') { e.stopPropagation(); o.editKey = null; renderOverlay(); }
+  };
+  const noteOpen = q('#key-note-open', modal);
+  if (noteOpen) noteOpen.onclick = () => api.settingsReveal();
+  const newSave = q('#key-new-save', modal);
+  if (newSave) {
+    const doNew = () => {
+      const name = q('#key-new-name', modal).value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (!name) { toast('Name it like AN_ENV_VAR first.'); return; }
+      saveKey(name, q('#key-new-val', modal));
+    };
+    newSave.onclick = doNew;
+    q('#key-new-val', modal).onkeydown = (e) => { if (e.key === 'Enter') doNew(); };
+  }
+}
+
+// ---- peek: float a file or card above the desk without touching the tiles --
+function openPeek(p) {
+  const cur = S.overlay && S.overlay.type === 'peek' && S.overlay.panel;
+  if (cur && (cur.kind === 'editor' || cur.kind === 'card') && cur.dirty
+      && !confirm(`Discard unsaved changes to ${baseNameOf(cur.filePath)}?`)) return;
+  S.overlay = { type: 'peek', panel: p }; renderOverlay();
+}
+function renderPeek() {
+  const p = S.overlay.panel;
+  const browser = p.kind === 'editor' && fileKind(p.filePath) === 'html';
+  const wrap = document.createElement('div'); wrap.className = 'overlay'; wrap.onclick = requestClosePeek;
+  const box = document.createElement('div'); box.className = 'peek-box'; box.onclick = (e) => e.stopPropagation();
+  box.innerHTML = `<div class="peek-head">
+      ${panelChip(p)}
+      <span class="col"><span class="pk-title">${esc(p.title)}${p.dirty ? ' •' : ''}</span><span class="pk-sub">${esc(shortHome(p.filePath))}</span></span>
+      ${browser ? '<button class="btn pk-browser"></button>' : ''}
+      <button class="btn btn--go pk-pin" title="Keep it open as a tile on the desk">Pin to desk</button>
+      <button class="t-btn pk-x" title="Close"><span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span></button>
+    </div><div class="peek-body"></div>`;
+  wrap.appendChild(box); els.overlayRoot.appendChild(wrap);
+  const rec = { body: q('.peek-body', box), peek: true };
+  if (p.kind === 'editor') mountEditor(p, rec);
+  else if (p.kind === 'card') mountCard(p, rec);
+  else mountViewer(p, rec);
+  overlayDispose = rec.disposeEditor || null;
+  peekRec = rec;
+  if (browser) bindBrowserButton(q('.pk-browser', box), p);
+  q('.pk-pin', box).onclick = pinPeek;
+  q('.pk-x', box).onclick = requestClosePeek;
+}
+// Pinning a page means the page, not its source: an HTML peek lands on the
+// desk as a browser tile showing it rendered. The source is one click away
+// in the tree, where the peek still opens with Read / Edit.
+async function pinPeek() {
+  const o = S.overlay; if (!o || o.type !== 'peek') return;
+  const p = o.panel;
+  if (p.kind === 'editor' && fileKind(p.filePath) === 'html') {
+    if (p.dirty && !(await saveEditor(p))) return;
+    const owner = p.owner || ownerFor(S.panels, { activeId: S.activeId, view: S.view, sessionId: S.split.sessionId });
+    S.overlay = null; renderOverlay();
+    browsers.open('about:blank', p.filePath, owner);
+    return;
+  }
+  S.overlay = null; renderOverlay();
+  pinFilePanel(p);
+}
+function requestClosePeek() {
+  const o = S.overlay; if (!o || o.type !== 'peek') { closeOverlay(); return; }
+  const p = o.panel;
+  if ((p.kind === 'editor' || p.kind === 'card') && p.dirty
+      && !confirm(`Discard unsaved changes to ${baseNameOf(p.filePath)}?`)) return;
+  closeOverlay();
+}
+// ---- connect a service ------------------------------------------------------
+// Three small sheets: pick a card, paste one key, see it proven. Copy follows
+// the approved mockup and never assumes which agent the user runs.
+let mcpUi;
+function mcpSetup() {
+  if (!mcpUi) mcpUi = createMcpSetup({
+    state: S, overlay, q, esc, api, toast, closeOverlay, renderOverlay,
+    refreshServices, refreshAgents, loadLibrary, installedAgentIds,
+    chosenAgent, agentOptionsHtml, agentSession, bestAgent, startPanel, shortHome, agentNameOf,
+  });
+  return mcpUi;
+}
+function openConnect() { mcpSetup().openConnect(); }
+function renderConnectCatalog() {
+  const cat = S.services.catalog;
+  const connectedIds = new Set(S.services.connected.map((s) => s.id));
+  const modal = overlay('picker-box', `<div class="picker-input"><span class="prompt-mark">⚡</span>
+    <span style="font-weight:700">Connect MCP</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">pick one to start</span></div>
+    ${cat.length ? '' : '<div class="rail-empty" style="padding:14px">Loading the catalog…</div>'}
+    <div class="svc-grid">${cat.map((s) => `
+      <div class="svc-card${connectedIds.has(s.id) ? ' connected' : ''}" data-id="${esc(s.id)}" tabindex="0">
+        <span class="code" data-kind="service">${esc(s.code)}</span>
+        <span class="sv-name">${esc(s.name)}</span>
+        <span class="sv-desc">${esc(s.desc)}</span>
+        ${s.id === 'kie' ? '<span class="sv-by">by Bond</span>' : ''}
+        <span class="sv-go">${connectedIds.has(s.id) ? '<span class="ok">●</span> connected' : 'connect →'}</span>
+      </div>`).join('')}</div>
+    <div class="svc-custom" id="svc-own" tabindex="0">
+      <span class="code" data-kind="service">＋</span>
+      <span class="col"><span class="sv-name">Already have one? Add it yourself</span>
+      <span class="sv-desc">paste an address or command — or choose a .mcpb bundle file</span></span>
+      <span class="sv-go">add it →</span>
+    </div>
+    <div class="svc-custom" id="svc-custom" tabindex="0">
+      <span class="code" data-kind="service">✳</span>
+      <span class="col"><span class="sv-name">Something else? It gets built for you</span>
+      <span class="sv-desc">say it in plain words, watch it happen</span></span>
+      <span class="sv-go">build it →</span>
+    </div>`);
+  const clickOnEnter = (el) => { el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.onclick(); } }; };
+  modal.querySelectorAll('.svc-card').forEach((el) => {
+    el.onclick = () => {
+      const svc = cat.find((s) => s.id === el.dataset.id);
+      const already = S.services.connected.find((s) => s.id === svc.id);
+      if (already) return openServiceDetails(already);
+      openConnectForm(svc);
+    };
+    clickOnEnter(el);
+  });
+  q('#svc-custom', modal).onclick = () => openConnectCustom();
+  clickOnEnter(q('#svc-custom', modal));
+  q('#svc-own', modal).onclick = () => openConnectOwn();
+  clickOnEnter(q('#svc-own', modal));
+}
+// The "already have it" door: an address, a command line, or a .mcpb bundle.
+// All three end as one master entry, then copied into each CLI notebook we can write.
+function openConnectOwn() { return mcpSetup().openConnectOwn(); }
+function renderConnectOwn() {
+  const o = S.overlay;
+  const b = o.bundle;
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" data-kind="service">＋</span>
+      <span class="col"><span class="name">Add your own</span><span class="desc">an address, a command, or a bundle file</span></span></div>
+    ${b ? `<p class="setup-copy"><b>${esc(b.name)}</b>${b.version ? ' · v' + esc(b.version) : ''} — ${esc(b.description || 'unpacked and ready')}</p>`
+        : `<p class="setup-copy">Paste what the service gave you — a URL (https://…) or the command line from its README.</p>`}
+    <div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">Name</span>
+      <input class="text-input" id="own-name" style="flex:1" placeholder="what your agents should call it" spellcheck="false" /></div>
+    ${b ? '' : `<div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">It is</span>
+      <input class="text-input" id="own-addr" style="flex:1" placeholder="https://mcp.example.com/mcp  ·  or:  npx -y some-mcp-server" spellcheck="false" /></div>`}
+    ${(b ? b.fields : []).map((f) => `<div class="frow" style="display:flex;gap:10px;align-items:baseline;margin:0 0 10px"><span class="sv-lab" style="width:64px;flex:none">${esc(f.label)}</span>
+      <input class="text-input own-field" data-k="${esc(f.id)}" style="flex:1" type="${f.sensitive ? 'password' : 'text'}" placeholder="${esc(f.description || (f.default ? 'default: ' + f.default : ''))}" spellcheck="false" /></div>`).join('')}
+    ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
+    <div class="chip-row" id="own-scope" style="margin:8px 0">
+      <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
+      <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">${W.thisMac}</span></div>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="own-go">Connect</button>
+      ${b ? '<button class="btn" id="own-clear">Different bundle</button>' : '<button class="btn" id="own-bundle">Choose a bundle…</button>'}</div>`);
+  const nameIn = q('#own-name', modal), addrIn = q('#own-addr', modal);
+  nameIn.value = o.name; if (addrIn) addrIn.value = o.address;
+  const keep = () => {
+    o.name = nameIn.value; if (addrIn) o.address = addrIn.value;
+    modal.querySelectorAll('.own-field').forEach((inp) => { o.values[inp.dataset.k] = inp.value.trim(); });
+  };
+  nameIn.oninput = keep; if (addrIn) addrIn.oninput = keep;
+  modal.querySelectorAll('.own-field').forEach((inp) => { inp.value = o.values[inp.dataset.k] || ''; inp.oninput = keep; });
+  q('#own-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { keep(); o.scope = chip.dataset.v; renderOverlay(); }; });
+  const pickBtn = q('#own-bundle', modal);
+  if (pickBtn) pickBtn.onclick = async () => {
+    keep();
+    const res = await api.pickBundle();
+    if (!res) return;
+    if (!res.ok) { toast(res.error || 'Could not read that bundle.'); return; }
+    o.bundle = res;
+    if (!o.name.trim()) o.name = res.name || res.slug;
+    renderOverlay();
+  };
+  const clearBtn = q('#own-clear', modal);
+  if (clearBtn) clearBtn.onclick = () => { o.bundle = null; o.values = {}; renderOverlay(); };
+  q('#own-go', modal).onclick = async () => {
+    keep();
+    if (!o.name.trim()) { toast('Give it a name first.'); return; }
+    if (!b && !o.address.trim()) { toast('Paste an address or command first — or choose a bundle.'); return; }
+    const missing = b ? b.fields.filter((f) => f.required && !o.values[f.id]) : [];
+    if (missing.length) { toast(`Fill in ${missing[0].label} first.`); return; }
+    q('#own-go', modal).textContent = 'Connecting…';
+    const res = await api.connectCustom({
+      name: o.name, address: o.address, values: o.values, bundleDir: b && b.dir,
+      scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path,
+    });
+    refreshServices(); loadLibrary(true);
+    S.overlay = { type: 'connect-done', svc: { name: o.name.trim(), code: '＋', desc: 'your own connection' }, result: res };
+    renderOverlay();
+  };
+}
+function openConnectForm(svc) { S.overlay = { type: 'connect-form', svc, scope: 'project', values: {} }; renderOverlay(); }
+// Who ends up seeing a new connection: the CLIs we can write a notebook for.
+// Hermes is named, not implied — its list is `hermes mcp`.
+function svcKnowsLine() {
+  const text = knowsCopy({ kind: 'mcp', installed: installedAgentIds(), nameOf: agentNameOf });
+  return text ? esc(text) : '';
+}
+function renderConnectForm() {
+  const o = S.overlay, svc = o.svc;
+  const guided = svc.kind === 'guided';
+  const folder = svc.kind === 'folder';
+  const keyRows = (svc.keys || []).map((k) => `
+    <input class="text-input sv-key" data-k="${esc(k.id)}" placeholder="${esc(k.placeholder)}" spellcheck="false" />
+    ${svc.keyHelpUrl ? `<div class="sv-help" data-url="${esc(svc.keyHelpUrl)}">where do I find my key?</div>` : ''}`).join('');
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" data-kind="service">${esc(svc.code)}</span>
+      <span class="col"><span class="name">Connect ${esc(svc.name)}</span><span class="desc">${esc(svc.desc)}</span></span></div>
+    ${guided
+      ? `<p class="setup-copy">${esc(svc.guide)}</p><div class="ni-agent">${chosenAgent(o)
+          ? `a new session with <select class="agent-pick" id="sv-agent">${agentOptionsHtml(o.workerId)}</select> walks you through it`
+          : W.noAgentYet}</div>`
+      : folder
+        ? `<p class="setup-copy">Pick the one folder your agents may read and edit. Nothing outside it is reachable.</p><button class="btn" id="sv-pick-folder">Choose a folder…</button><div class="setup-note" id="sv-folder-note">${esc(o.values.folder ? shortHome(o.values.folder) : '')}</div>`
+        : `<p class="setup-copy">${esc(svc.name)} gives you one key so your agents can get in. Paste it here. It stays on ${W.yourMac}.</p>${keyRows}`}
+    ${svcKnowsLine() ? `<div class="setup-note">${svcKnowsLine()}</div>` : ''}
+    <details class="sv-fold"${o.foldOpen ? ' open' : ''}><summary>choices (fine as they are)</summary>
+      <div class="sv-fold-body">
+        <div class="sv-lab">works in</div>
+        <div class="chip-row" id="sv-scope">
+          <span class="pick-chip${o.scope === 'project' ? ' picked' : ''}" data-v="project">this project</span>
+          <span class="pick-chip${o.scope === 'user' ? ' picked' : ''}" data-v="user">${W.thisMac}</span></div>
+      </div></details>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="sv-connect">${guided ? 'Set it up with my agent' : 'Connect'}</button>
+      <button class="btn" id="sv-docs">Guide</button></div>`);
+  // Re-renders rebuild the sheet, so typed keys are read into o.values before
+  // every re-render and written back into the inputs after.
+  const saveKeys = () => { modal.querySelectorAll('.sv-key').forEach((inp) => { o.values[inp.dataset.k] = inp.value.trim(); }); };
+  modal.querySelectorAll('.sv-key').forEach((inp) => { inp.value = o.values[inp.dataset.k] || ''; });
+  modal.querySelectorAll('.sv-help').forEach((el) => { el.onclick = () => api.openUrl(el.dataset.url); });
+  const guidedSel = q('#sv-agent', modal);
+  if (guidedSel) guidedSel.onchange = () => { o.workerId = guidedSel.value; };
+  const fold = q('.sv-fold', modal); fold.ontoggle = () => { o.foldOpen = fold.open; };
+  q('#sv-docs', modal).onclick = () => api.openUrl(svc.docs);
+  q('#sv-scope', modal).querySelectorAll('.pick-chip').forEach((chip) => { chip.onclick = () => { saveKeys(); o.scope = chip.dataset.v; renderOverlay(); }; });
+  const pickBtn = q('#sv-pick-folder', modal);
+  if (pickBtn) pickBtn.onclick = async () => { const info = await api.pickFolder(); if (info) { o.values.folder = info.path; q('#sv-folder-note', modal).textContent = info.pathShort; } };
+  // Install kind (kie): two honest clicks. First click installs in a visible
+  // terminal tile; reopening the sheet finds the build and offers Connect.
+  const install = svc.kind === 'install';
+  if (install && o.installed === undefined) {
+    q('#sv-connect', modal).textContent = 'Install first';
+    api.installPlan({ connectorId: svc.id }).then((plan) => {
+      o.installed = !!(plan && plan.built);
+      o.installDir = plan && plan.dir;
+      const b = q('#sv-connect', modal);
+      if (b && b.textContent !== 'Connecting…') b.textContent = o.installed ? 'Connect' : 'Install first';
+    });
+  } else if (install) {
+    q('#sv-connect', modal).textContent = o.installed ? 'Connect' : 'Install first';
+  }
+  q('#sv-connect', modal).onclick = async () => {
+    if (guided) return startGuidedSetup(svc, chosenAgent(o));
+    if (install && !o.installed) {
+      const res = await startConnectorInstall({ svc, api, startPanel, toast, closeOverlay, panel: { purpose: 'installer', oneShot: true, watchDone: true } });
+      if (res.prereq) toast(res.prereq.short);
+      return;
+    }
+    saveKeys();
+    if (install) o.values.installDir = o.installDir;
+    if (svc.keys.some((k) => !o.values[k.id]) || (folder && !o.values.folder)) { toast(folder ? 'Choose a folder first.' : 'Paste your key first.'); return; }
+    q('#sv-connect', modal).textContent = 'Connecting…';
+    const res = await api.connectService({ id: svc.id, values: o.values, scope: o.scope, agentIds: installedAgentIds(), projectPath: S.project && S.project.path });
+    refreshServices(); loadLibrary(true);
+    S.overlay = { type: 'connect-done', svc, result: res }; renderOverlay();
+  };
+}
+function renderConnectDone() {
+  const { svc, result } = S.overlay;
+  const okLine = result.ok
+    ? (result.checked ? `tested just now: ${esc(svc.name)} answers · ${result.tools} tools ready` : `written, but the test could not confirm it yet (${esc(result.checkError || 'no answer')})`)
+    : `something went wrong: ${esc(result.error || 'unknown')}`;
+  const extra = result.claudeUserScope && result.claudeUserScope !== 'written' ? `<div class="setup-note">${esc(result.claudeUserScope)}</div>` : '';
+  const modal = overlay('setup-box', `
+    <div class="sv-bigok"><div class="sv-bigok-t caveat">${result.ok ? esc(svc.name) + ' is connected!' : 'Not yet.'}</div>
+      <div class="sv-bigok-s">${result.ok ? 'your agents can use it from the very next session' : 'nothing broke, and nothing was half-written'}</div></div>
+    <div class="sv-okline"><span class="ok"${result.ok ? '' : ' style="color:var(--amber-ink)"'}>●</span> ${okLine}</div>
+    <details class="sv-fold"><summary>curious what got written? peek here</summary>
+      <div class="sv-fold-body"><div class="setup-note">${(result.files || []).map(esc).join(' · ') || 'nothing yet'}</div>${extra}</div></details>
+    <div class="setup-actions">
+      <button class="btn btn--go" id="sv-done">Done</button>
+      <button class="btn" id="sv-more">Connect another</button></div>`);
+  q('#sv-done', modal).onclick = closeOverlay;
+  q('#sv-more', modal).onclick = openConnect;
+}
+function openServiceDetails(sv) { return mcpSetup().openServiceDetails(sv); }
+// The factory is the user's own agent, whichever one they have installed.
+function bestAgent() {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready[0] || null; // registry order: claude, codex, opencode, gemini, hermes, kimi
+}
+// Session selector shared by every handoff sheet: the user picks which
+// installed agent does the work; default is the first detected.
+function agentOptionsHtml(selectedId) {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready.map((a) => `<option value="${esc(a.id)}"${a.id === selectedId ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+}
+function chosenAgent(o) {
+  const ready = (S.agents || []).filter((a) => a.found);
+  return ready.find((a) => a.id === (o && o.workerId)) || ready[0] || null;
+}
+function agentSession(worker, opts) {
+  // A flow names its session for a reason ("build: dark mode") — that name
+  // outranks the ones guessed later, and rides down into claude itself.
+  startPanel(Object.assign({ ...terminalAgentOptions(worker),
+    titleSource: 'flow',
+    command: worker.kind === 'claude' ? undefined : worker.bin }, opts));
+}
+function openConnectCustom() { return mcpSetup().openConnectCustom(); }
+function renderConnectCustom() {
+  const o = S.overlay;
+  const worker = chosenAgent(o);
+  const modal = overlay('setup-box', `
+    <div class="setup-head"><span class="code" data-kind="service">✳</span>
+      <span class="col"><span class="name">Built for you</span><span class="desc">describe it like you would to a person</span></span></div>
+    <input class="text-input" id="svc-desc" placeholder="our internal wiki at wiki.acme.dev, read-only is fine" spellcheck="false" />
+    <div class="ni-agent">${worker
+      ? `a new session with <select class="agent-pick" id="svc-agent">${agentOptionsHtml(worker.id)}</select> builds it for you`
+      : W.noAgentYet}</div>
+    <div class="setup-actions" style="margin-top:12px"><button class="btn btn--go" id="svc-go" ${worker ? '' : 'disabled'}>Go</button></div>
+    <p class="setup-note">Watch it work, talk to it if you want. It appears under MCP in the Library when it lands.</p>`);
+  const agentSel = q('#svc-agent', modal);
+  if (agentSel) agentSel.onchange = () => { o.workerId = agentSel.value; };
+  const input = q('#svc-desc', modal); input.value = o.text; setTimeout(() => input.focus(), 30);
+  input.oninput = () => { o.text = input.value; };
+  q('#svc-go', modal).onclick = () => {
+    const w = chosenAgent(o);
+    if (!o.text.trim() || !w) return;
+    closeOverlay();
+    // The agent registers into the master; Nami fans it out when the session
+    // ends — the same rhythm as agent- and skill-building sessions.
+    const onExit = S.project
+      ? () => { refreshServices(); api.deliverServices({ projectPath: S.project.path, agentIds: installedAgentIds() }).then(() => refreshServices()); }
+      : undefined;
+    agentSession(w, { title: 'build: connector', code: 'BC', seed:
+      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`, onExit });
+    toast('Your agent is on it. It appears under MCP in the Library when it lands.');
+  };
+}
+function startGuidedSetup(svc, worker) {
+  worker = worker || bestAgent();
+  if (!worker) { toast(W.noAgentYet); return; }
+  closeOverlay();
+  agentSession(worker, { title: 'set up ' + svc.name, code: svc.code, seed:
+    `Walk me through connecting ${svc.name} step by step (${svc.docs}). Do every step you can yourself, ask me only when a browser sign-in needs me, and when it works register it for this project.` });
+  toast('Your agent will walk you through it, right in the tile.');
+}
+let overlayStill = false;
+// ---- quick start -----------------------------------------------------------
+//
+// The one place in the window that answers "what is this and what do I do now".
+// Nami had no such place: the Help menu is five outbound links, and the person
+// this is for does not look in the menu bar.
+//
+// A checklist, not a tour. Coach marks have to be maintained across four themes
+// and every layout change, they get skipped, and they teach before anyone has a
+// reason to care — VS Code and Zed both landed on a resumable list instead.
+// Every button here does the real thing rather than describing it, and rows
+// tick off as they are done so leaving and coming back keeps your place.
+// The Supademo walk-throughs the rows link to. Empty until each one is
+// recorded, and a row only grows its Watch button once its URL is filled in —
+// a "▶ Watch · 2 min" that plays nothing is a worse promise than no button.
+// Paste a URL here and the button appears; nothing else needs touching.
+const DEMOS = {
+  'getting-started': '',   // first launch → folder → agent → first ask → approve
+  'a-real-job': '',        // plain English in, two panes running, a file out
+};
+const QS_DONE = 'bond-quickstart-done';
+function qsDone() {
+  try { return new Set(JSON.parse(localStorage.getItem(QS_DONE) || '[]')); } catch { return new Set(); }
+}
+function qsMark(n) {
+  const done = qsDone(); done.add(n);
+  try { localStorage.setItem(QS_DONE, JSON.stringify([...done])); } catch { /* private mode */ }
+}
+function openQuickStart() { rememberHelpFocus(); S.overlay = { type: 'quickstart' }; renderOverlay(); }
+
+function quickStartRows() {
+  return [
+    {
+      n: 1, title: 'Pick one folder to work in',
+      sub: 'Nami only ever looks inside it. No folder yet? It will make you one.',
+      done: !!S.project,
+      acts: S.project ? [] : [{ label: 'Make me a folder', go: true, run: () => { closeOverlay(); makeFolderDialog(); } }],
+    },
+    {
+      n: 2, title: 'Press New session and pick who runs it',
+      sub: 'The list shows what is on ' + W.yourMac + '. Anything missing installs from the same list.',
+      acts: [
+        { label: 'New session ' + kbd('new-session'), go: true, run: () => { closeOverlay(); openLauncher(); } },
+        { label: '▶ Watch · 2 min', play: 'getting-started' },
+      ],
+    },
+    {
+      n: 3, title: 'Bond can run multiple agents for you',
+      sub: 'Claude Code signs in with your Claude account, Codex with your ChatGPT one. No Bond account, no second bill.',
+      acts: [{ label: 'Which should I pick?', run: () => api.openUrl(DOCS.pickAgent) }],
+    },
+    {
+      n: 4, title: 'Say what you need, in plain English',
+      sub: 'No commands to learn. Here are twelve things people actually ask for.',
+      acts: [
+        { label: 'See 12 examples', run: () => api.openUrl(DOCS.examples) },
+        { label: '▶ Watch · 60s', play: 'a-real-job' },
+      ],
+    },
+    {
+      n: 5, title: 'It asks before it does anything real',
+      sub: 'An amber “Needs your OK” card means it is waiting on you. Nothing happens behind your back.',
+      acts: [{ label: 'How permissions work', run: () => api.openUrl(DOCS.permissions) }],
+    },
+    {
+      n: 6, title: 'Open what your agent makes',
+      sub: OPEN_OUTPUT_COPY,
+      acts: [{ label: W.shortcutsLabel, run: () => openSettings('shortcuts') }],
+    },
+  ];
+}
+
+function renderQuickStart() {
+  const done = qsDone();
+  const rows = quickStartRows();
+  const body = rows.map((r) => {
+    const ticked = r.done || done.has(r.n);
+    // A demo that has not been recorded yet simply is not offered.
+    const shown = r.acts.filter((a) => !a.play || DEMOS[a.play]);
+    const acts = shown.length
+      ? `<div class="qs-acts">${shown.map((a) =>
+          `<button class="qs-mini${a.go ? ' qs-mini--go' : ''}${a.play ? ' qs-mini--play' : ''}" data-row="${r.n}" data-act="${r.acts.indexOf(a)}">${esc(a.label)}</button>`).join('')}</div>`
+      : '';
+    return `<div class="qs-row"${ticked ? ' data-done' : ''}>
+      <div class="qs-n">0${r.n}</div>
+      <div><div class="qs-t">${esc(r.title)}</div>
+      <div class="qs-s">${esc(r.sub)}</div>${acts}</div></div>`;
+  }).join('');
+
+  const modal = overlay('qs-box', `<div class="qs-head"><span class="title">Quick start</span></div>
+    <div class="qs-body">${body}</div>
+    <div class="qs-foot"><span>Stuck? <a class="qs-link" href="#" data-url="${REPO_URL}/issues">Ask on GitHub</a></span>
+    <a class="qs-link" href="#" data-url="${DOCS.start}">Full guide ↗</a></div>`, { top: true });
+
+  wireHelpDialog(modal);
+  modal.querySelectorAll('[data-act]').forEach((b) => {
+    b.onclick = () => {
+      const row = rows.find((r) => r.n === +b.dataset.row);
+      const act = row && row.acts[+b.dataset.act];
+      if (!act) return;
+      qsMark(row.n);
+      if (act.play) { api.openUrl(DEMOS[act.play]); return; }
+      act.run();
+    };
+  });
+  modal.querySelectorAll('.qs-link[data-url]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); api.openUrl(el.dataset.url); };
+  });
+}
+
+function overlay(cls, inner, opts) {
+  const wrap = document.createElement('div'); wrap.className = 'overlay' + (opts && opts.top ? ' overlay--top' : ''); wrap.onclick = closeOverlay;
+  const modal = document.createElement('div'); modal.className = cls; modal.onclick = (e) => e.stopPropagation(); modal.innerHTML = inner;
+  if (overlayStill) modal.style.animation = 'none';
+  const x = document.createElement('button'); x.className = 't-btn ov-x'; x.title = 'Close'; x.innerHTML = `<span class="uni-i">✕</span><span class="pix-i">${pixIcon('close')}</span>`; x.onclick = closeOverlay;
+  modal.appendChild(x);
+  wrap.appendChild(modal); els.overlayRoot.appendChild(wrap); return modal;
+}
+
+// ---- folders ---------------------------------------------------------------
+// A file opened with Nami from Finder. Either it already lives on this desk —
+// then it is just a tile — or the desk has to change folders first. That switch
+// is the one the user is allowed to refuse, so the file waits in S.pendingOpen
+// until the answer is known rather than being forced onto a foreign desk.
+// See src/main/open-with.js for how the window and folder were chosen.
+async function receiveOpenFile(ev) {
+  if (!ev || !ev.filePath) return;
+  // The launcher is what an empty desk shows. A file answers the question it
+  // was asking, so it gets out of the way rather than covering the tile.
+  if (S.overlay && S.overlay.type === 'launcher') closeOverlay();
+  if (!ev.adopt) return openFile(ev.filePath, { pin: true });
+  S.pendingOpen = ev.filePath;
+  const info = await api.openFolder(ev.folder, false);
+  if (!info || info.missing) {
+    S.pendingOpen = null;
+    toast('Could not open ' + tailPath(ev.folder) + '.');
+    return;
+  }
+  await switchToFolder(info);
+}
+
+// Called from every path that ends with the desk standing on the right folder.
+async function drainPendingOpen() {
+  const file = S.pendingOpen;
+  if (!file) return;
+  S.pendingOpen = null;
+  await openFile(file, { pin: true });
+}
+
+async function openFolderDialog() { const info = await api.pickFolder(); if (info) await switchToFolder(info); }
+async function openFolder(path) {
+  // Read it, don't adopt it — switchToFolder may still route this folder to a
+  // new window, and a switch that never happens must leave Recents untouched.
+  const info = await api.openFolder(path, false);
+  if (!info) return;
+  if (info.missing) { toast('That folder has moved or been deleted.'); return; }
+  await switchToFolder(info);
+}
+// This window is now that folder's window: main bumps Recents and records the
+// folder for restore. Called only once a switch is actually going through.
+function adoptFolder(info) { return api.openFolder(info.path); }
+
+// A window is one folder, so changing the folder has to change the desk with
+// it. Without this the tiles from the folder you left stay on screen under the
+// new name, keep running in the old cwd, and the next savePanels() writes them
+// over the incoming folder's remembered desk.
+async function switchToFolder(info) {
+  if (!info) return;
+  if (S.project && S.project.path === info.path) { await adoptFolder(info); applyProject(info); await drainPendingOpen(); return; }
+  // Nothing on the desk yet — nothing to preserve, so this is just an open.
+  if (!S.project && !S.panels.length) { await adoptFolder(info); applyProject(info); await restoreDeskFor(info.path); await drainPendingOpen(); return; }
+  // Live work is never torn down to make room. Offer it a window of its own
+  // instead — the same ⧉ the popover already has, just asked for at the right
+  // moment.
+  const live = S.panels.filter((p) => isSessionPanel(p) && p.status === 'live' && !p.exited);
+  if (live.length) { openSwitchChoice(info, live); return; }
+  await swapDesk(info);
+}
+
+// isSessionPanel comes from desk-view.mjs now — one definition of what a session is.
+
+// Save → clear → restore, in that order. The save has to name the *outgoing*
+// folder explicitly: savePanels() reads S.project, which is about to change.
+async function swapDesk(info) {
+  for (const p of S.panels) if (p.kind === 'browser' && browsers.hasPending(p) && !await browsers.canClose(p)) return;
+  const from = S.project ? S.project.path : null;
+  clearTimeout(saveTimer); // a pending debounce would land under the new folder
+  await flushPanels(from);
+  clearDesk();
+  await adoptFolder(info);
+  applyProject(info);
+  await restoreDeskFor(info.path);
+  await drainPendingOpen();
+}
+
+// Tear the desk down without the confirm prompts closePanel() runs — the caller
+// has already established there is nothing live and nothing unsaved to lose.
+function clearDesk() {
+  for (const p of S.panels) if (isSessionPanel(p)) api.termKill({ id: p.id });
+  for (const [, t] of tileEls) { if (t.disposeRo) t.disposeRo(); if (t.disposeBrowser) t.disposeBrowser(); t.root.remove(); }
+  tileEls.clear();
+  S.panels = []; S.activeId = null; S.expandedId = null;
+  browsers.clearNotes(); browsers.decorate();
+}
+
+async function restoreDeskFor(folder) {
+  let snaps = [];
+  try { snaps = await api.loadPanels(folder); } catch (_) { snaps = []; }
+  if (Array.isArray(snaps) && snaps.length) await restorePanels(snaps);
+  else renderAll();
+}
+
+// The launcher's sheet, reused: two exits, neither of which destroys anything.
+function openSwitchChoice(info, live) {
+  S.overlay = { type: 'switch-folder', info, live };
+  renderOverlay();
+}
+function renderSwitchChoice() {
+  const { info, live } = S.overlay;
+  const rows = live.slice(0, 4).map((p) => `<div class="sw-live"><span class="mark">✳</span><span>${esc(p.title)}</span></div>`).join('');
+  const more = live.length > 4 ? `<div class="sw-live"><span class="mark"> </span><span>and ${live.length - 4} more</span></div>` : '';
+  const modal = overlay('switch-box', `
+    <div class="modal-head"><div class="title">${esc(S.project ? S.project.name : 'This folder')} still has work running</div></div>
+    <div class="sw-body">${live.length === 1 ? 'A session is' : live.length + ' sessions are'} live on this desk. Opening
+      ${esc(info.name)} here would leave ${live.length === 1 ? 'it' : 'them'} running with no window to watch from.</div>
+    <div class="sw-list">${rows}${more}</div>
+    <div class="sw-acts">
+      <button class="btn btn--go" id="sw-win">⧉ Open ${esc(info.name)} in a new window</button>
+      <button class="btn" id="sw-stay">Stay here</button>
+    </div>
+    <div class="sw-hint">${esc(info.name)} opens with its own desk. Nothing here is touched.</div>`);
+  // The file follows the folder: it was opened for that folder, not this desk.
+  q('#sw-win', modal).onclick = () => { const file = S.pendingOpen; S.pendingOpen = null; closeOverlay(); api.newWindow(info.path, file); };
+  q('#sw-stay', modal).onclick = () => {
+    // Staying means the file is not opened. Say so — a Finder double-click that
+    // visibly does nothing reads as a broken app.
+    if (S.pendingOpen) { toast(baseNameOf(S.pendingOpen) + ' stayed closed — this desk has work running.'); S.pendingOpen = null; }
+    closeOverlay();
+  };
+  q('#sw-win', modal).focus();
+}
+
+function applyProject(info) {
+  S.project = info; S.tree = {}; S.expanded = new Set();
+  S.library.loaded = false; S.library.items = []; S.library.edges = [];
+  S.library.macLoaded = false; S.library.macLoading = false; S.library.macGen += 1;
+  // The pointer belongs to a folder, so the old folder's answer must not be
+  // shown against the new one — clear it and let the next scan refill it.
+  S.pointer = null;
+  S.recents = [{ path: info.path, pathShort: info.pathShort, name: info.name, at: Date.now(), pinned: !!(S.recents.find((r) => r.path === info.path) || {}).pinned },
+    ...S.recents.filter((r) => r.path !== info.path)];
+  S.tree[info.path] = info.tree && info.tree.length && info.tree[0].path ? info.tree : null;
+  // load root level fresh for the explorer
+  api.listDir(info.path, S.treeAll).then((rows) => { S.tree[info.path] = rows; if (S.railTab === 'workspace') refreshRail(); });
+  watchProject();
+  refreshServices();
+  renderAll();
+}
+
+// ---- toast -----------------------------------------------------------------
+let toastTimer = null;
+function toast(msg) { els.toastRoot.innerHTML = `<div class="toast"><span class="dot"></span><span class="msg">${esc(msg)}</span></div>`; clearTimeout(toastTimer); toastTimer = setTimeout(() => { els.toastRoot.innerHTML = ''; }, 2200); }
+
+// ===========================================================================
+//  Update bar
+// ===========================================================================
+// A card in the corner, never a modal. Someone mid-sentence with an agent does
+// not want the app in front of them, and an update is the least urgent thing
+// Nami has to say — so it waits, and "Not now" means not this version, ever.
+
+const SKIPPED_UPDATE = 'bond-skipped-update';
+
+// What the bar is currently saying. `offered` is what update-check found, and
+// survives every repaint — the failure state needs its url to fall back to a
+// browser, and the progress events do not carry one.
+let offered = null;
+
+function offerUpdate(info, initial) {
+  if (!info || !info.version || !els.updateRoot) return;
+  // Dismissing is per version, and it sticks. Re-asking every six hours for
+  // something already refused is how an update prompt becomes wallpaper.
+  if (localStorage.getItem(SKIPPED_UPDATE) === info.version) return;
+  offered = info;
+  // A window opened while a download was already running joins it in progress
+  // rather than offering to start a second one.
+  //
+  // `staged` is the case that used to be lost entirely: a download finished in
+  // some earlier run and was never installed, and nothing in the app knew it
+  // was there — so the bar offered to fetch 166 MB that was already on disk,
+  // and quitting did nothing, forever. A file waiting is a ready update.
+  // `state` is always set, so staged has to be asked about on its own — as a
+  // fallback for the idle case, never as an override of a live download.
+  let at = (initial && initial.state) || 'idle';
+  if (at === 'idle' && initial && initial.staged) at = 'ready';
+  paintUpdate(at === 'downloading' ? 'downloading' : at === 'ready' ? 'ready' : 'idle', {});
+}
+
+// One function, four states, because they are the same card saying different
+// things — and because a repaint from an event that arrives after the user
+// dismissed the bar must not bring it back. `offered` being null means the bar
+// is closed, and every state respects that.
+function paintUpdate(state, ev) {
+  if (!offered || !els.updateRoot) return;
+  const version = esc((ev && ev.version) || offered.version);
+  const close = () => { els.updateRoot.innerHTML = ''; offered = null; };
+
+  if (state === 'downloading') {
+    const pct = Math.max(0, Math.min(100, Number((ev && ev.percent) || 0)));
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot"></span>
+      <span class="un-msg">getting Bond ${version}…</span>
+      <span class="un-bar"><span class="un-fill" style="width:${pct}%"></span></span>
+      <span class="un-pct">${pct}%</span>
+    </div>`;
+    return;
+  }
+
+  if (state === 'ready') {
+    // There is a button now, and there did not used to be. Waiting for a quit
+    // was the whole design — an update should never end a session somebody is
+    // in the middle of — but on a real machine it lost every time: the app
+    // takes its time closing, Squirrel waits for it, and reopening Nami inside
+    // that window cancels the install with nothing said. So the wait stays as
+    // the quiet default and this is the way to make it happen on purpose.
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot un-done"></span>
+      <span class="un-msg">Bond ${version} is ready</span>
+      <button class="un-act" id="uc-now">install now</button>
+      <span class="un-sep">·</span>
+      <button class="un-act un-quiet" id="uc-ok">on quit</button>
+    </div>`;
+    q('#uc-ok', els.updateRoot).onclick = close;
+    q('#uc-now', els.updateRoot).onclick = async () => {
+      // Ask main rather than counting tiles: sessions belong to other windows
+      // too, and this window can only see its own.
+      let live = 0;
+      try { live = await api.liveSessions(); } catch (_) {}
+      if (live > 0) return paintUpdate('confirm', { version: (ev && ev.version) || offered.version, live });
+      await api.installUpdate();
+    };
+    return;
+  }
+
+  // The one warning this feature owes anybody. Installing restarts Nami, and
+  // restarting ends every session — so when there is work in flight, say what
+  // will be lost and make them say yes to it.
+  if (state === 'confirm') {
+    const live = Number((ev && ev.live) || 0);
+    els.updateRoot.innerHTML = `<div class="update-note">
+      <span class="un-dot"></span>
+      <span class="un-msg">${live} session${live === 1 ? '' : 's'} running — installing stops ${live === 1 ? 'it' : 'them'}</span>
+      <button class="un-act" id="uc-yes">install anyway</button>
+      <span class="un-sep">·</span>
+      <button class="un-act un-quiet" id="uc-no">not now</button>
+    </div>`;
+    q('#uc-yes', els.updateRoot).onclick = async () => { await api.installUpdate(); };
+    q('#uc-no', els.updateRoot).onclick = () => paintUpdate('ready', ev);
+    return;
+  }
+
+  // idle, and failed. They differ only in what the button does: before anything
+  // has gone wrong it downloads in place, and afterwards it hands the dmg to a
+  // browser, which is exactly what 0.1.3 did.
+  const broke = state === 'failed';
+  els.updateRoot.innerHTML = `<div class="update-note">
+    <span class="un-dot"></span>
+    <span class="un-msg">${broke ? `Bond ${version} has to be installed by hand` : `Bond ${version} is out`}</span>
+    <button class="un-act" id="uc-get">download</button>
+    <span class="un-sep">·</span>
+    <button class="un-act un-quiet" id="uc-later">not now</button>
+  </div>`;
+
+  q('#uc-get', els.updateRoot).onclick = async () => {
+    if (broke) { await api.openUpdate(offered.url); close(); return; }
+    // Everything after this arrives as an event: progress, then ready, or
+    // failed — at which point this same bar comes back offering the browser.
+    await api.downloadUpdate();
+  };
+  q('#uc-later', els.updateRoot).onclick = () => {
+    localStorage.setItem(SKIPPED_UPDATE, offered.version);
+    close();
+  };
+}
+
+// ===========================================================================
+//  The one time Nami asks for anything
+// ===========================================================================
+// Nami is free, and the only thing that helps anyone find it is a star. But the
+// app has no account, no telemetry and no way to reach the person using it —
+// which is the point — so the ask has to happen here, and it gets exactly one
+// chance. Once. Dismissed is forever, same as a skipped update.
+//
+// Counted in launches rather than sessions on purpose. Five sessions can all
+// happen in one sitting on the first afternoon, when nobody owes you anything
+// yet; five separate launches means somebody came back, which is the only
+// evidence available that Nami earned its place. Nothing is sent anywhere to
+// learn this — it is a number in localStorage on one machine.
+
+const STAR_ASKED = 'bond-star-asked';
+const LAUNCH_TALLY = 'bond-launches';
+const ASK_AFTER_LAUNCHES = 5;
+// Long enough that the bar is never part of the app opening. Someone who just
+// launched Nami is going somewhere; this waits until they have arrived.
+const ASK_AFTER_MS = 90_000;
+
+function tallyLaunch() {
+  const n = Number(localStorage.getItem(LAUNCH_TALLY) || 0) + 1;
+  // Stop counting once it is moot, so the number cannot grow without bound.
+  if (n <= ASK_AFTER_LAUNCHES) localStorage.setItem(LAUNCH_TALLY, String(n));
+  return n;
+}
+
+// Pure, so the rules are testable without a DOM: asked already, or not enough
+// launches, means never.
+function starAskDue({ asked, launches }) {
+  if (asked) return false;
+  return Number(launches) >= ASK_AFTER_LAUNCHES;
+}
+
+function closeStarAsk() {
+  // Clicked or waved away, it makes no difference: both are an answer, and
+  // asking a second time is how a request becomes a nag.
+  localStorage.setItem(STAR_ASKED, '1');
+  if (els.updateRoot) els.updateRoot.innerHTML = '';
+}
+
+function paintStarAsk() {
+  // An update is always the more important thing in this slot, and it must
+  // never be displaced by a favour. If one is showing, the moment has passed.
+  if (!els.updateRoot || offered || localStorage.getItem(STAR_ASKED)) return;
+  // Green, not amber: amber in Nami means *needs you*, and this does not.
+  els.updateRoot.innerHTML = `<div class="update-note">
+    <span class="un-dot un-done"></span>
+    <span class="un-msg un-ask">Enjoying Bond? A star helps other people find it.</span>
+    <button class="un-act" id="star-go">★ Star it</button>
+    <span class="un-sep">·</span>
+    <button class="un-act un-quiet" id="star-no">no thanks</button>
+  </div>`;
+  q('#star-go', els.updateRoot).onclick = () => { api.openUrl(REPO_URL); closeStarAsk(); };
+  q('#star-no', els.updateRoot).onclick = closeStarAsk;
+}
+
+// Called once at boot. A demo or screenshot run counts nothing — those launches
+// are not a person coming back to the app.
+function armStarAsk() {
+  if (S.demo) return;
+  const launches = tallyLaunch();
+  if (!starAskDue({ asked: localStorage.getItem(STAR_ASKED), launches })) return;
+  setTimeout(paintStarAsk, ASK_AFTER_MS);
+}
+
+// ===========================================================================
+//  Demo seed (screenshot / preview)
+// ===========================================================================
+function seedDemo() {
+  S.project = { path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas', hasClaude: true, tree: [], agents: [
+    { slug: 'collector', name: 'collector', desc: 'Pulls structured data off pages', tools: 'browser · files · shell' },
+    { slug: 'engineer', name: 'engineer', desc: 'Edits the repo, runs tests, opens a PR', tools: 'claude code · git' },
+    { slug: 'researcher', name: 'researcher', desc: 'Reads the web and writes a brief', tools: 'web · sources' },
+  ], skills: [] };
+  S.recents = [{ path: '/Users/calvin/work/atlas', pathShort: '~/work/atlas', name: 'Atlas' }];
+  // A claude tile + an editor tile so the paper grid reads clearly.
+  const ct = { id: uid('p_'), kind: 'shell', chipKind: 'agent', code: 'CC', title: 'Claude session', cwd: '/Users/calvin/work/atlas', status: 'live', started: true, _demoText: true };
+  const e = { id: uid('p_'), kind: 'editor', chipKind: 'editor', code: 'ED', title: 'passkey.ts', filePath: '/Users/calvin/work/atlas/src/auth/passkey.ts', dirty: true, status: 'live',
+    text: `import { verifyRegistration } from './webauthn'\n\nexport async function register(user: User) {\n  const options = await createOptions(user)\n  const cred = await navigator.credentials.create({ publicKey: options })\n  return verifyRegistration(cred)\n}\n` };
+  S.panels = [ct, e]; S.activeId = ct.id;
+  // paint a paper "claude" banner into the demo terminal after mount
+  setTimeout(() => { const t = tileEls.get(ct.id); if (t && t.term) t.term.write('\x1b[38;2;168;121;42m✻ Welcome to Claude Code\x1b[0m\r\n\r\n  \x1b[38;2;74;107;82m❯\x1b[0m Compare our pricing with the top 20 competitors\r\n\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Read pricing.csv (187 rows)\r\n  \x1b[38;2;74;122;74m✓\x1b[0m Lined up 20 competitor sites\r\n  \x1b[38;2;168;121;42m●\x1b[0m Building your spreadsheet…\r\n\r\n  \x1b[38;2;141;128;101mType / for commands · esc to interrupt\x1b[0m\r\n'); }, 500);
+}
+
+function rememberContext(id, context) {
+  const rec = tileEls.get(id), p = S.panels.find((p) => p.id === id); if (!rec || !p) return;
+  p.contextNotes ||= []; p.contextNotes.push(context); p.contextNotes = p.contextNotes.slice(-20);
+  if (!rec.contextStrip) { rec.contextStrip = document.createElement('div'); rec.contextStrip.className = 'browser-note-strip'; rec.root.appendChild(rec.contextStrip); }
+  rec.contextStrip.innerHTML = `<span>${p.contextNotes.length} inserted ${p.contextNotes.length === 1 ? 'item' : 'items'}</span><button class="btn btn--small">Review</button><button class="btn btn--small">Clear history</button>`;
+  const [review, hide] = rec.contextStrip.querySelectorAll('button');
+  review.onclick = () => { S.overlay = { type: 'insertion-history', panelId: id }; renderOverlay(); };
+  hide.onclick = () => { p.contextNotes = []; rec.contextStrip.remove(); rec.contextStrip = null; };
+}
+function renderInsertionHistory() {
+  const id = S.overlay.panelId, p = S.panels.find(p => p.id === id);
+  const entries = p?.contextNotes || [];
+  const modal = overlay('modal modal--selection modal--insertion-history', `<div class="modal-head"><span class="title">Inserted items</span></div><div class="modal-body selection-sheet"><p class="note">One-time insertions into ${esc(p?.title || 'this session')}. This history does not update the source or undo messages.</p>${entries.map((n, i) => `<section><div class="context-reference">${esc(n.reference)}</div><pre class="selection-preview">${esc(n.text)}</pre><button class="btn btn--small" data-insert-again="${i}">Insert again…</button></section>`).join('') || '<p>No inserted items.</p>'}</div><div class="modal-foot"><button class="btn btn--go" id="history-done">Done</button></div>`);
+  q('#history-done', modal).onclick = closeOverlay;
+  modal.querySelectorAll('[data-insert-again]').forEach(b => b.onclick = () => openSelectionDraft({owner:id}, {reference:'Previously inserted item', text:entries[Number(b.dataset.insertAgain)].text}));
+}
+function wireUsagePane(modal) { return wireUsageContent(modal, { api, toast }); }
