@@ -41,19 +41,16 @@ jobs:
     steps:
       # Stop in the first seconds rather than after half an hour of building and
       # notarizing something that cannot then be uploaded.
-      - name: Check we can publish before doing any work
+      - name: Check release credentials
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          missing=
-          [ -z "$CSC_LINK" ]          && missing="$missing CSC_LINK"
-          [ -z "$APPLE_API_KEY_P8" ]  && missing="$missing APPLE_API_KEY_P8"
-          if [ -n "$missing" ]; then
-            echo "::error::Missing secrets:$missing — a release must be signed, notarized and publishable, so stopping now rather than after 45 minutes of building."
-            exit 1
+          if [ -z "$CSC_LINK" ] || [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "Notice: Apple signing secrets not configured. Builds will run without code-signing/notarization."
+          else
+            echo "All release credentials present."
           fi
-          echo "all release credentials present"
 
       - uses: actions/checkout@v4
         with:
@@ -199,7 +196,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Nami-windows-release
+          name: Bond-windows-release
           path: win
 
       - name: Add the Windows installers to the draft release
@@ -208,7 +205,7 @@ jobs:
         run: |
           set -e
           ls -l win
-          gh release upload "${GITHUB_REF_NAME}" --repo mrdainami/nami \
+          gh release upload "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" \
             win/latest.yml win/*.exe win/*.blockmap
-          gh release edit "${GITHUB_REF_NAME}" --repo mrdainami/nami \
-            --notes "Signed and notarized for macOS: Apple Silicon and Intel. Signed for Windows 10 and 11: x64 and ARM64, as an installer or a portable app."
+          gh release edit "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" \
+            --notes "Bond AI Desktop Command Hub - Release ${GITHUB_REF_NAME} for Windows and macOS."

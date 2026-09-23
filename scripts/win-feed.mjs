@@ -24,7 +24,7 @@ import yaml from 'js-yaml';
 // `files` falls back to, and a PC that old is not an ARM one.
 export const ARCHES = ['x64', 'arm64'];
 
-const setupName = (arch) => `Nami-Setup-${arch}.exe`;
+const isSetupName = (url, arch) => url === `Bond-Setup-${arch}.exe` || url === `Nami-Setup-${arch}.exe`;
 
 export function mergeFeeds(docs) {
   const versions = [...new Set(docs.map((d) => d && d.version))];
@@ -34,9 +34,9 @@ export function mergeFeeds(docs) {
     const found = [];
     for (const d of docs) {
       if (!Array.isArray(d.files) || d.files.length !== 1) throw new Error('each build must list exactly one installer under files');
-      if (d.files[0].url === setupName(arch)) found.push(d.files[0]);
+      if (isSetupName(d.files[0].url, arch)) found.push(d.files[0]);
     }
-    if (found.length !== 1) throw new Error(`expected one feed for ${setupName(arch)}, found ${found.length}`);
+    if (found.length !== 1) throw new Error(`expected one feed for Setup-${arch}.exe, found ${found.length}`);
     const { url, sha512, size } = found[0];
     return { url, sha512, size };
   });
