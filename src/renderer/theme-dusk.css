@@ -75,9 +75,9 @@ body[data-theme="dusk"] {
              inset 2px 2px 3px var(--sf-in-l), inset -2px -2px 4px var(--sf-in-d);
   --sf-card-sm: 3px 3px 6px var(--sf-d), -3px -3px 6px var(--sf-l),
              inset 1px 1px 2px var(--sf-in-l), inset -1px -1px 3px var(--sf-in-d);
-  --sf-go: 4px 4px 8px rgba(8, 10, 14, 0.55), -3px -3px 6px rgba(255, 140, 136, 0.22),
-           inset 2px 2px 3px rgba(255, 190, 186, 0.35), inset -2px -2px 5px rgba(20, 8, 8, 0.45);
-  --sf-go-press: inset 4px 4px 8px rgba(8, 10, 14, 0.5), inset -2px -2px 5px rgba(255, 160, 156, 0.22);
+  --sf-go: 4px 4px 8px rgba(8, 10, 14, 0.55), -3px -3px 6px rgba(0, 168, 107, 0.3),
+           inset 2px 2px 3px rgba(16, 185, 129, 0.4), inset -2px -2px 5px rgba(0, 60, 35, 0.45);
+  --sf-go-press: inset 4px 4px 8px rgba(8, 10, 14, 0.5), inset -2px -2px 5px rgba(0, 168, 107, 0.3);
   --sf-thumb: rgba(232, 234, 238, 0.24);
   --sf-r: 18px;
   --sf-r-sm: 12px;
@@ -128,5 +128,36 @@ body[data-theme="dusk"] .card-ico-img {
   border: 1px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
+
+/* ---- Settings Modal ------------------------------------------------------- */
+body[data-theme="dusk"] .modal--settings .set-nav .rail-tab {
+  border-radius: 9999px;
+  transition: all 0.15s ease;
+}
+body[data-theme="dusk"] .modal--settings .set-nav .rail-tab.active {
+  background: #00A86B;
+  color: #000000;
+  border-color: #10B981;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(0, 168, 107, 0.45);
+}
+body[data-theme="dusk"] .modal--settings .set-nav .rail-tab:hover:not(.active) {
+  background: rgba(0, 168, 107, 0.12);
+  border-color: rgba(0, 168, 107, 0.3);
+  color: var(--ink);
+}
+body[data-theme="dusk"] .modal--settings #set-done {
+  background: #00A86B;
+  color: #000000;
+  border-color: #10B981;
+  border-radius: 9999px;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(0, 168, 107, 0.45);
+}
+body[data-theme="dusk"] .modal--settings #set-done:hover {
+  background: #10B981;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.6);
+}
+
 
 

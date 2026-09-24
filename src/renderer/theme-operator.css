@@ -512,23 +512,28 @@ body[data-theme="operator"] .modal--settings .set-nav .rail-tab {
   transition: all 0.15s ease;
 }
 body[data-theme="operator"] .modal--settings .set-nav .rail-tab.active {
-  background: #f87171;
-  color: #181b21;
-  border-color: #f87171;
-  font-weight: 600;
-  box-shadow: 0 0 12px rgba(248, 113, 113, 0.35);
+  background: #00A86B;
+  color: #000000;
+  border-color: #10B981;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(0, 168, 107, 0.45);
+}
+body[data-theme="operator"] .modal--settings .set-nav .rail-tab:hover:not(.active) {
+  background: rgba(0, 168, 107, 0.12);
+  border-color: rgba(0, 168, 107, 0.3);
+  color: var(--ink);
 }
 body[data-theme="operator"] .modal--settings #set-done {
-  background: #f87171;
-  color: #181b21;
-  border-color: #f87171;
+  background: #00A86B;
+  color: #000000;
+  border-color: #10B981;
   border-radius: 9999px;
-  font-weight: 600;
-  box-shadow: 0 0 12px rgba(248, 113, 113, 0.35);
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(0, 168, 107, 0.45);
 }
 body[data-theme="operator"] .modal--settings #set-done:hover {
-  background: #ff8585;
-  box-shadow: 0 0 16px rgba(248, 113, 113, 0.5);
+  background: #10B981;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.6);
 }
 
 /* ---- Library 3-card Grid (Agent, Skill, MCP) ------------------------------ */
