@@ -12,25 +12,25 @@ body[data-theme="operator"] {
      borders sat ~1.2:1 against the panel and half the chrome was written
      below 4.5:1. Same ladder, every rung raised; the accent never moved.
      Approved from art/reference/operator-lift-mockup.html. */
-  --desk: #181b22;
-  --sheet-hi: #1e222b;
-  --sheet-lo: #1a1e26;
-  --paper: #222632;
-  --paper-2: #2a2f3e;
-  --paper-3: #262b37;
+  --desk: #101010;
+  --sheet-hi: #101010;
+  --sheet-lo: #0a0a0a;
+  --paper: #161616;
+  --paper-2: #1c1c1c;
+  --paper-3: #181818;
   --ink: #f8fafc;
-  --muted: #cbd5e1;
-  --muted-2: #94a3b8;
-  --muted-3: #64748b;
-  --faint: #475569;
-  --line: #374151;
-  --dash: #2d3748;
-  --dash-dark: #4b5563;
-  --field: #13161c;          /* wells sink below the panel; crisp and deep */
-  --field-line: #4b5563;
-  --rail: #191c24;
-  --hover: #2e3544;
-  --menu-sheet: #222632; /* opaque paper — menus need no extra fill here */
+  --muted: #a3a3a3;
+  --muted-2: #737373;
+  --muted-3: #525252;
+  --faint: #383838;
+  --line: #242424;
+  --dash: #1c1c1c;
+  --dash-dark: #303030;
+  --field: #0a0a0a;          /* wells sink below the panel; crisp and deep */
+  --field-line: #242424;
+  --rail: #0e0e0e;
+  --hover: #222222;
+  --menu-sheet: #161616; /* opaque paper — menus need no extra fill here */
   --green: #00A86B;          /* primary action → Bond emerald */
   --green-dark: #00875a;
   --green-ok: #10B981;
@@ -78,7 +78,7 @@ body[data-theme="operator"] {
 }
 
 /* ---- ground ------------------------------------------------------------- */
-body[data-theme="operator"] { background: #181b22; }
+body[data-theme="operator"] { background: #101010; }
 body[data-theme="operator"] a { color: #6ea8ff; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border: 3px solid transparent; background-clip: content-box; }
 body[data-theme="operator"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); background-clip: content-box; }

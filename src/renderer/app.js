@@ -98,7 +98,7 @@ const THEME_KEY = 'bond-theme';
 const XTERM_THEME_OPERATOR = {
   // Transparent over the operator panel; minimumContrastRatio re-inks
   // cream-tuned TUI text for the dark ground.
-  background: 'rgba(31,31,31,0)', foreground: '#ecebe7', cursor: '#00A86B', cursorAccent: '#121212',
+  background: 'rgba(16,16,16,0)', foreground: '#ecebe7', cursor: '#00A86B', cursorAccent: '#101010',
   selectionBackground: 'rgba(0,168,107,0.28)',
   black: '#4f4f4f', red: '#ef4444', green: '#5aa06e', yellow: '#d8a03d', blue: '#6ea8ff',
   magenta: '#c792ea', cyan: '#5ac8c8', white: '#b8b5ae',
@@ -132,7 +132,7 @@ const XTERM_THEME_SOFT = {
   brightBlue: '#5b82d9', brightMagenta: '#9a64b3', brightCyan: '#2f989f', brightWhite: '#2c2a33',
 };
 const XTERM_THEME_DUSK = {
-  background: 'rgba(38,42,49,0)', foreground: '#e8eaee', cursor: '#00A86B', cursorAccent: '#262a31',
+  background: 'rgba(16,16,16,0)', foreground: '#e8eaee', cursor: '#00A86B', cursorAccent: '#101010',
   selectionBackground: 'rgba(0,168,107,0.3)',
   black: '#4a4b55', red: '#ff6b67', green: '#5fca8b', yellow: '#e8b33e', blue: '#6f9dff',
   magenta: '#d580cc', cyan: '#4fc2cc', white: '#a7a8b3',

@@ -3,26 +3,26 @@
    body[data-soft] rules in theme-soft.css. Spec: 2026-08-26-soft-dusk-themes.md */
 
 body[data-theme="dusk"] {
-  --desk: #1a1d24;
-  --sheet-hi: #22262f;
-  --sheet-lo: #1e222a;
-  --paper: #262a33;
-  --paper-2: #2d323d;
-  --paper-3: #282d37;
+  --desk: #101010;
+  --sheet-hi: #101010;
+  --sheet-lo: #0a0a0a;
+  --paper: #161616;
+  --paper-2: #1c1c1c;
+  --paper-3: #181818;
   --ink: #f8fafc;
-  --muted: #cbd5e1;
-  --muted-2: #94a3b8;
-  --muted-3: #64748b;
-  --faint: #5c6370;
-  --line: rgba(232, 234, 238, 0.25);
-  --dash: rgba(232, 234, 238, 0.20);
-  --dash-dark: rgba(232, 234, 238, 0.32);
-  --field: #181b22;
-  --field-line: rgba(232, 234, 238, 0.25);
-  --rail: #1c2027;
-  --hover: #2f3542;
-  --menu-sheet: #262a33;
-  --qs-pane: #262a33;
+  --muted: #a3a3a3;
+  --muted-2: #737373;
+  --muted-3: #525252;
+  --faint: #383838;
+  --line: rgba(255, 255, 255, 0.12);
+  --dash: rgba(255, 255, 255, 0.08);
+  --dash-dark: rgba(255, 255, 255, 0.16);
+  --field: #0a0a0a;
+  --field-line: rgba(255, 255, 255, 0.12);
+  --rail: #0e0e0e;
+  --hover: #222222;
+  --menu-sheet: #161616;
+  --qs-pane: #161616;
   --green: #00A86B;
   --green-dark: #00875a;
   --green-ok: #5fca8b;
@@ -83,7 +83,7 @@ body[data-theme="dusk"] {
   --sf-r-sm: 12px;
   --sf-r-chip: 10px;
 }
-body[data-theme="dusk"] { background: #1a1d24; }
+body[data-theme="dusk"] { background: #101010; }
 body[data-theme="dusk"] .tree-row .name,
 body[data-theme="dusk"] .tree-row[data-kind="file"] .name { color: var(--ink); }
 body[data-theme="dusk"] a { color: #6f9dff; }
