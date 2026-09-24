@@ -111,7 +111,7 @@ test('screen: on Windows the sign-in boxes give way to one plain sentence', () =
   const capability = importCapability('win32');
   assert.deepEqual(importCategories(capability), ['history']);
   const note = importNote(capability);
-  assert.match(note, /^Windows browsers lock their saved sign-ins to the browser itself, so Nami cannot copy them/);
+  assert.match(note, /^Windows browsers lock their saved sign-ins to the browser itself, so Bond cannot copy them/);
   assert.match(note, /signing in inside this browser tile works and is remembered\.$/);
   assert.equal((note.match(/[.!?](\s|$)/g) || []).length, 1, 'one sentence');
   assert.doesNotMatch(note, /Keychain|macOS|\bMac\b|Finder|⌘/);

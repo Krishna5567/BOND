@@ -3,7 +3,7 @@
 //
 //   flag — the tool has a native launch-as-agent flag; the session opens
 //          already being the agent. Nothing is typed.
-//   seed — no such flag; Nami opens a plain session and types one summoning
+//   seed — no such flag; Bond opens a plain session and types one summoning
 //          sentence in that tool's own idiom.
 //
 // Every entry is backed by a probe transcript in

@@ -1,6 +1,6 @@
-// The words and keys that belong to the machine, not to Nami, in one place.
+// The words and keys that belong to the machine, not to Bond, in one place.
 //
-// Nami was written on a Mac and talked like one: "Reveal in Finder", "on this
+// Bond was written on a Mac and talked like one: "Reveal in Finder", "on this
 // Mac", ⌘N. Every one of those was right, and none of them was marked as a
 // platform decision — they were just strings, about seventy of them, spread
 // over a dozen files. On Windows each one is a small lie: there is no Finder,
@@ -53,14 +53,14 @@ export function clickWith(mods, platform = currentPlatform()) {
   return platform === WIN ? kb([...mods, 'Click'], platform) : kb(mods, platform) + ' Click';
 }
 
-// ---- Nami's own chords -------------------------------------------------------
+// ---- Bond's own chords -------------------------------------------------------
 // These are not a translation, which is why they are a table and not a call to
 // keys(). On a Mac ⌘N can never collide with a terminal, because a terminal has
 // no use for ⌘. On Windows the app's modifier and the terminal's are the same
 // key: inside a pane Ctrl+N, Ctrl+W, Ctrl+K and Ctrl+O belong to the shell and
 // to whatever agent is running in it, and they must stay there. So each chord
 // has a Ctrl+Shift form that works everywhere, a pane included — the Windows
-// Terminal convention — and that is the form Nami prints, because a key that
+// Terminal convention — and that is the form Bond prints, because a key that
 // works only some of the time is one nobody learns. The plain Ctrl forms still
 // work wherever a terminal does not have the keyboard (term-keys.mjs has the
 // rule, and the list of which chords get through).
@@ -69,7 +69,7 @@ export function clickWith(mods, platform = currentPlatform()) {
 // ⇧⌘N to New Window, and Ctrl+Shift+N is New Window everywhere on Windows too.
 // T is "new tab" in Windows Terminal, which is the nearest thing to a session.
 // Settings and Save keep the plain form: no terminal takes Ctrl+comma, and a
-// file is saved from its editor, where Ctrl+S is Nami's already.
+// file is saved from its editor, where Ctrl+S is Bond's already.
 //
 // Trash is Ctrl+Delete on Windows because Delete is the key Windows deletes a
 // file with. The handler has always taken either key.
@@ -110,7 +110,7 @@ const MAC_WORDS = Object.freeze({
   trash: 'Trash',
   keychain: 'Keychain',
   menuBar: 'menu bar',
-  holdToOpen: 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Nami.',
+  holdToOpen: 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Bond.',
   // The line under the shortcuts sheet. A Mac needs its glyphs named; Windows
   // has no glyphs, and the thing worth saying there is what Shift is for.
   keyLegend: '⌘ Command · ⌥ Option · ⇧ Shift',
@@ -132,7 +132,7 @@ const WIN_WORDS = Object.freeze({
   trash: 'the Recycle Bin',
   keychain: 'Windows credentials',
   menuBar: 'menu',
-  holdToOpen: 'Hold Ctrl and click a link or file path in a session. Web links open in your browser. Files open here in Nami.',
+  holdToOpen: 'Hold Ctrl and click a link or file path in a session. Web links open in your browser. Files open here in Bond.',
   keyLegend: 'Ctrl+Shift keys work inside a terminal too',
   noAgentYet: 'No agent is installed yet. Press ' + chordText('new-session', WIN) + ' to add one first.',
   shortcutsLabel: 'Shortcuts & gestures',

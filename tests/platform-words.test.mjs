@@ -17,7 +17,7 @@ test('a Mac keeps every word it has always printed', () => {
   assert.equal(w.trash, 'Trash');
   assert.equal(w.keychain, 'Keychain');
   assert.equal(w.menuBar, 'menu bar');
-  assert.equal(w.holdToOpen, 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Nami.');
+  assert.equal(w.holdToOpen, 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Bond.');
   assert.equal(w.keyLegend, '⌘ Command · ⌥ Option · ⇧ Shift');
   assert.equal(w.noAgentYet, 'No agent is installed yet. Press ⌘N to add one first.');
   assert.equal(w.shortcutsLabel, '⌘ Shortcuts & gestures');

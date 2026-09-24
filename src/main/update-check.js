@@ -1,4 +1,4 @@
-// Is there a newer Nami than the one running?
+// Is there a newer Bond than the one running?
 //
 // Notify-only on purpose: this asks GitHub what the latest release is, and if
 // it is newer, main tells the renderer to show a bar. Clicking opens the dmg in
@@ -71,7 +71,7 @@ function releaseFromApi(doc, arch = process.arch, platform = process.platform) {
   return { version, url };
 }
 
-const LATEST = process.env.BOND_UPDATE_URL || 'https://api.github.com/repos/bond-ai/bond/releases/latest';
+const LATEST = process.env.BOND_UPDATE_URL || 'https://api.github.com/repos/Krishna5567/BOND/releases/latest';
 
 async function fetchLatest(url = LATEST) {
   const res = await fetch(url, {

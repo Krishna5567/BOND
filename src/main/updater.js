@@ -1,4 +1,4 @@
-// Downloading and swapping in a new Nami. The part that can brick an install.
+// Downloading and swapping in a new Bond. The part that can brick an install.
 //
 // update-check.js decides whether there is anything worth offering; this file
 // does something about it, and only ever when the user has said yes. The split
@@ -12,7 +12,7 @@
 //   tether or hotel wifi, so autoDownload stays off and the first byte moves
 //   when a button is pressed.
 //
-//   Nothing is installed while Nami is running. main.js kills every pty and
+//   Nothing is installed while Bond is running. main.js kills every pty and
 //   closes every Claude session on before-quit, so a restart-to-update would
 //   end whatever the agents were doing. The swap therefore waits for a quit the
 //   user chose for their own reasons — autoInstallOnAppQuit — and there is no
@@ -74,7 +74,7 @@ function log(...args) { console.log('[update]', ...args); }
 
 // One download at a time, one staged update at a time, for the whole app —
 // there can be three windows open and they are all looking at the same copy of
-// Nami on disk.
+// Bond on disk.
 let state = 'idle';
 let staged = null;   // { version } once an update is sitting there waiting for a quit
 
@@ -84,7 +84,7 @@ function updaterState() { return { state, version: staged ? staged.version : nul
 //
 // `emit` is how this file talks to the windows; main owns the sending. Every
 // path through here ends in an emit, including the failures, because a bar that
-// says "Getting Nami 0.1.4…" forever is worse than one that admits defeat and
+// says "Getting Bond 0.1.4…" forever is worse than one that admits defeat and
 // offers the browser again.
 //
 // checkForUpdates runs first because electron-updater will not download
@@ -144,7 +144,7 @@ async function downloadUpdate({ isPackaged, emit, platform = process.platform })
 // electron-updater writes the file and an update-info.json beside it, and then
 // forgets both the moment the app closes: the handler that installs on quit is
 // registered when a download finishes and lives in memory only, so a staged
-// update that misses its moment is never installed by anything, ever. Nami
+// update that misses its moment is never installed by anything, ever. Bond
 // reads the cache itself at launch so it can offer it again.
 //
 // update-info.json records the file name and its hash but not the version, so
@@ -165,7 +165,7 @@ function hasStagedFile(cacheRoot, io = fs) {
 //
 // The quit handler was the whole plan once, and it lost four times in a row on
 // a real machine: it fires as the app is closing, Squirrel then waits for the
-// process to actually go, and anyone who reopens Nami inside that window — 30
+// process to actually go, and anyone who reopens Bond inside that window — 30
 // seconds on a laptop with sessions to tear down, sometimes two minutes — gets
 // "App Still Running Error" and no update, with nothing to say why. Quitting on
 // purpose, through electron-updater, has no window to lose.

@@ -68,9 +68,9 @@ test('a shell that hangs and returns empty still yields a usable PATH', async ()
 });
 
 // One probe per app run is right for a PATH that does not move — and wrong for
-// the one moment it does. An installer run inside Nami writes a PATH line into
+// the one moment it does. An installer run inside Bond writes a PATH line into
 // the rc file, and every tile opened afterwards was still being handed the
-// answer from before the install, so an agent Nami had just installed could not
+// answer from before the install, so an agent Bond had just installed could not
 // be spawned until the app was restarted.
 test('after an install the shell is asked again', async () => {
   resetForTests();

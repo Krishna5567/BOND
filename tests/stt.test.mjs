@@ -64,7 +64,7 @@ test('settings key beats an env key for the same provider', () => {
 
 // ---- status -----------------------------------------------------------------
 
-test('status reports every provider, and only a key saved in Nami counts as saved', () => {
+test('status reports every provider, and only a key saved in Bond counts as saved', () => {
   const s = status({ settings: {}, env: { OPENAI_API_KEY: 'sk-env' }, deps: { engine: fakeEngine() } });
   assert.deepEqual(s.providers.map((p) => p.id), ['local', 'openai', 'elevenlabs']);
   const oa = s.providers.find((p) => p.id === 'openai');
@@ -215,7 +215,7 @@ test('clipToFile prefers the original recording over a rebuilt WAV', () => {
 // ---- an engine that will not load -------------------------------------------
 // What Windows really says on a PC without the C++ runtime, path and all.
 const dlopenWin = () => Object.assign(
-  new Error('The specified module could not be found.\r\n\\\\?\\C:\\Users\\cal\\AppData\\Local\\Programs\\Nami\\resources\\app.asar.unpacked\\node_modules\\onnxruntime-node\\bin\\napi-v3\\win32\\arm64\\onnxruntime_binding.node'),
+  new Error('The specified module could not be found.\r\n\\\\?\\C:\\Users\\cal\\AppData\\Local\\Programs\\Bond\\resources\\app.asar.unpacked\\node_modules\\onnxruntime-node\\bin\\napi-v3\\win32\\arm64\\onnxruntime_binding.node'),
   { code: 'ERR_DLOPEN_FAILED' });
 
 test('on Windows an engine that cannot load is explained in plain words, with no path', async () => {
@@ -229,7 +229,7 @@ test('on Windows an engine that cannot load is explained in plain words, with no
     assert.equal(res.ok, false);
     assert.equal(res.fault, true);
     assert.match(res.error, /speech engine could not start/);
-    assert.match(res.error, /Reinstalling Nami fixes it/);
+    assert.match(res.error, /Reinstalling Bond fixes it/);
     assert.doesNotMatch(res.error, /[\\/]|\.node|onnxruntime|module/i);
   }
 });
@@ -248,7 +248,7 @@ test('on Windows any other engine error keeps its own words', async () => {
 
 test('the Mac keeps the loader\'s own message, exactly as before', async () => {
   const engine = fakeEngine();
-  const raw = Object.assign(new Error('dlopen(/Applications/Nami.app/x/onnxruntime_binding.node, 0x0001): Library not loaded'), { code: 'ERR_DLOPEN_FAILED' });
+  const raw = Object.assign(new Error('dlopen(/Applications/Bond.app/x/onnxruntime_binding.node, 0x0001): Library not loaded'), { code: 'ERR_DLOPEN_FAILED' });
   engine.transcribe = async () => { throw raw; };
   engine.prepare = async () => { throw raw; };
   const spoken = await transcribe({ clip: clip(), settings: {}, env: {}, deps: { engine }, platform: 'darwin' });

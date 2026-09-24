@@ -14,7 +14,7 @@ function keychainPassword(browser,signal) {
     {encoding:'utf8',timeout:25000,signal,maxBuffer:64*1024},(error,out)=>resolve(error?null:String(out).trim()||null)));
 }
 function createImportWorker(data) {
-  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'nami-browser-import-'));
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'bond-browser-import-'));
   try {
     const worker=new Worker(__filename,{workerData:{...data,directory}});
     worker.cleanup=()=>fs.promises.rm(directory,{recursive:true,force:true});

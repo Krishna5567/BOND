@@ -1,6 +1,6 @@
 // A file open on the desk follows the file on disk.
 //
-// Nami is single-writer: one agent, or one person, changes a file at a time.
+// Bond is single-writer: one agent, or one person, changes a file at a time.
 // So this is not a sync engine and must not become one. There are four moves
 // and they are all here, with no DOM and no Electron underneath them, because
 // getting one wrong loses somebody's typing and that is worth being able to

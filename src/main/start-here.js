@@ -1,8 +1,8 @@
-// The note Nami leaves in a folder it made for you.
+// The note Bond leaves in a folder it made for you.
 //
 // Obsidian's new vault arrives with a welcome note, and it is the cheapest
 // documentation a folder-scoped app can ship: the guide is the first thing in
-// the file tree, it opens in Nami's own viewer, and the newcomer's first ask can
+// the file tree, it opens in Bond's own viewer, and the newcomer's first ask can
 // be about the file they are already looking at. No tour engine, no new surface,
 // and the note demonstrates folder-scoping by being an example of it.
 //

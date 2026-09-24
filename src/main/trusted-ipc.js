@@ -8,7 +8,7 @@ function trustedAppSender(event, windows, appUrl) {
     if (!sender || sender.isDestroyed() || !event.senderFrame || event.senderFrame !== sender.mainFrame) return false;
     // Compared as files, not as strings. Node spells C:\Users\LONGNA~1 with the
     // tilde percent-encoded and Chromium reports it bare, so the same document
-    // had two hrefs and a Nami running from a Windows short path locked itself
+    // had two hrefs and a Bond running from a Windows short path locked itself
     // out of every window. fileURLToPath decodes once, refuses an encoded
     // separator and anything that is not file:, so this opens the gate no wider:
     // a query string is still refused, because the app never loads with one.
@@ -22,7 +22,7 @@ function trustedIpc(ipc, allowed) {
   return {
     handle(channel, listener) {
       return ipc.handle(channel, (event, ...args) => {
-        if (!allowed(event)) throw Error('This action is only available from Nami.');
+        if (!allowed(event)) throw Error('This action is only available from Bond.');
         return listener(event, ...args);
       });
     },

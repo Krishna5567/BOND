@@ -15,7 +15,7 @@
 // sentence.
 //
 // Platform is passed in (api.platform); nothing here looks at the machine.
-const WIN_BLOCKED = 'Windows is not letting Nami use the microphone. Open Settings → Privacy & security → Microphone and turn on “Let desktop apps access your microphone”. If it is already on, another app may be holding the mic.';
+const WIN_BLOCKED = 'Windows is not letting Bond use the microphone. Open Settings → Privacy & security → Microphone and turn on “Let desktop apps access your microphone”. If it is already on, another app may be holding the mic.';
 const WIN_MISSING = 'No microphone was found. Plug one in, or pick one in Settings → System → Sound → Input.';
 
 export function micErrorText(error, platform) {

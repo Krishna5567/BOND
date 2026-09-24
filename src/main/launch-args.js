@@ -1,14 +1,14 @@
-// What a command line is asking Nami to open.
+// What a command line is asking Bond to open.
 //
 // macOS never needs this: Finder hands a file over as an `open-file` event, and
 // the path is never on the command line at all. Windows has no such event. A
-// double-clicked file, "Open with", and `Nami.exe C:\work` typed in a terminal
+// double-clicked file, "Open with", and `Bond.exe C:\work` typed in a terminal
 // all arrive the same way — as arguments to a new process — so somebody has to
 // read argv and say which of those arguments are things to open.
 //
 // Most of them are not. argv[0] is the program. In development the next plain
 // argument is the app itself (`electron .`). Chromium and Electron add switches
-// of their own, the updater adds more, and a few of Nami's own switches take
+// of their own, the updater adds more, and a few of Bond's own switches take
 // their value as the next argument, so `--user-data C:\tmp\profile` has a
 // perfectly real folder in it that nobody asked to open. What is left is read
 // against the folder the launch came from, and kept only if it exists: a typo
@@ -22,7 +22,7 @@ const path = require('node:path');
 const { handles } = require('./open-with');
 const { looksRemote } = require('./remote-path');
 
-// Nami's switches whose value is the argument after them. Every other switch
+// Bond's switches whose value is the argument after them. Every other switch
 // either stands alone or carries its value after an equals sign.
 const TAKES_VALUE = new Set(['--user-data', '--screenshot', '--zoom']);
 
@@ -39,10 +39,10 @@ function kindOf(p, stat) {
 // share that could not be opened whatever the disk said. Statting
 // \\server\share logs the PC in to that server (remote-path.js), and a command
 // line is written by whoever starts the process — a shortcut, another program.
-// Nami opens a folder, or a file of a type open-with.js lists, so a share path
+// Bond opens a folder, or a file of a type open-with.js lists, so a share path
 // ending in any other extension is a file it would turn away: it is passed over
 // on its name alone. The price is a folder on a share with a dot in its name,
-// which has to be opened from inside Nami instead.
+// which has to be opened from inside Bond instead.
 function worthAsking(p, platform) {
   if (!looksRemote(p, platform)) return true;
   return handles(p) || !/\.[^\\/.]+$/.test(p);

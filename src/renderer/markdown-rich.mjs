@@ -10,7 +10,7 @@ let stylePromise;
 function loadEditorStyle() {
   if (stylePromise) return stylePromise;
   stylePromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('link[data-nami-markdown-editor]');
+    const existing = document.querySelector('link[data-bond-markdown-editor], link[data-nami-markdown-editor]');
     if (existing) {
       if (existing.dataset.loaded === 'true' || existing.sheet) resolve();
       else {
@@ -22,6 +22,7 @@ function loadEditorStyle() {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = './vendor/markdown-editor.css';
+    link.dataset.bondMarkdownEditor = '';
     link.dataset.namiMarkdownEditor = '';
     link.addEventListener('load', () => { link.dataset.loaded = 'true'; resolve(); }, { once: true });
     link.addEventListener('error', () => reject(new Error('Could not load Markdown editor styles.')), { once: true });

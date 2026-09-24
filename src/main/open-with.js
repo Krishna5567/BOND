@@ -4,13 +4,13 @@
 // the command line, see launch-args.js — but from here on it is the same path
 // asking the same question, and it gets the same answer.)
 //
-// macOS hands the app a path and nothing else. Nami is folder-shaped — a tile
+// macOS hands the app a path and nothing else. Bond is folder-shaped — a tile
 // always sits on some folder's desk — so every incoming path has to be turned
 // into a (window, folder) pair before anything can render. That decision is
 // the whole of this module: pure, no Electron, so the four cases below are
 // testable without a running app.
 //
-// Kept deliberately short. Only the types Nami already renders as a document,
+// Kept deliberately short. Only the types Bond already renders as a document,
 // and only the ones a person would plausibly want a workbench to own. Images,
 // video, audio and PDF are Preview's; .json and .yml belong to an editor.
 // Being listed in "Open With" for everything is noise, not a feature.
@@ -81,14 +81,14 @@ function chooseTarget({ filePath, windows = [], focusedId = null, platform = pro
   return { action: 'new-window', id: null, folder: dir };
 }
 
-// A folder instead of a file: `Nami.exe C:\work`. There is no parent to fall
+// A folder instead of a file: `Bond.exe C:\work`. There is no parent to fall
 // back on and nothing to adopt — switching somebody's desk to another folder
 // because a command was typed elsewhere would take their sessions with it. So
 // it is the window already open on that folder, or a new one.
 //
 // One exception, because it takes nothing from anybody: a window with no folder
 // open has no sessions and no desk to lose. Leaving it there and opening a
-// second window beside it hands the user an empty Nami to close by hand every
+// second window beside it hands the user an empty Bond to close by hand every
 // time — and on Windows, where that empty window is what a plain relaunch
 // restores, it was the normal case rather than the odd one.
 function chooseFolderTarget({ folder, windows = [], focusedId = null, platform = process.platform }) {

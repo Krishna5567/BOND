@@ -109,12 +109,12 @@ test('a shim that is really node and a script is called as node and the script',
 test('a PowerShell one-shot reports its exit code and stays open', () => {
   const args = oneShotArgs(PS, 'npm i -g x');
   assert.deepEqual(args.slice(0, 3), ['-NoLogo', '-NoExit', '-Command']);
-  assert.ok(args[3].startsWith('npm i -g x; $namiOk = $?;'), args[3]);
+  assert.ok(args[3].startsWith('npm i -g x; $bondOk = $?;'), args[3]);
   assert.match(args[3], /\$LASTEXITCODE/);
-  assert.match(args[3], /NamiRunDone=/);
+  assert.match(args[3], /BondRunDone=/);
   assert.doesNotMatch(args[3], /printf|exec /);
   // and what it writes is what the parser reads
-  assert.equal(feedRunDone({ buf: '' }, `done\r\n\x1b]1337;NamiRunDone=3\x07PS C:\\> `), 3);
+  assert.equal(feedRunDone({ buf: '' }, `done\r\n\x1b]1337;BondRunDone=3\x07PS C:\\> `), 3);
 });
 
 test('the POSIX one-shot is untouched', () => {

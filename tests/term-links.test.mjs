@@ -22,8 +22,8 @@ test('a localhost dev server is a link, with or without a scheme', () => {
 });
 
 test('file paths still resolve, in every shape an agent prints them', () => {
-  assert.deepEqual(kinds('Updated /Users/cal/dainami-cli/src/renderer/app.js'),
-    ['path:/Users/cal/dainami-cli/src/renderer/app.js']);
+  assert.deepEqual(kinds('Updated /Users/cal/bond-desktop/src/renderer/app.js'),
+    ['path:/Users/cal/bond-desktop/src/renderer/app.js']);
   assert.deepEqual(kinds('the file is at ~/.config/opencode/opencode.jsonc'),
     ['path:~/.config/opencode/opencode.jsonc']);
   assert.deepEqual(kinds('⏺ Read(src/renderer/paper.css)'), ['path:src/renderer/paper.css']);
@@ -71,7 +71,7 @@ const winKinds = (s) => scanLinks(s, 'win32').map((l) => `${l.kind}:${l.text}`);
 test('windows: a drive path is one whole link', () => {
   assert.deepEqual(winKinds('Updated C:\\src\\app.js'), ['path:C:\\src\\app.js']);
   assert.deepEqual(winKinds('Updated C:/src/app.js today'), ['path:C:/src/app.js']);
-  assert.deepEqual(winKinds('wrote C:\\Users\\cal\\nami\\src\\renderer\\app.js.'), ['path:C:\\Users\\cal\\nami\\src\\renderer\\app.js']);
+  assert.deepEqual(winKinds('wrote C:\\Users\\cal\\bond\\src\\renderer\\app.js.'), ['path:C:\\Users\\cal\\bond\\src\\renderer\\app.js']);
   assert.deepEqual(winKinds('Read(D:\\work\\notes.md)'), ['path:D:\\work\\notes.md']);
   // printed as JSON, every backslash arrives doubled; the disk reads it the same
   assert.deepEqual(winKinds('"file_path": "C:\\\\src\\\\app.js",'), ['path:C:\\\\src\\\\app.js']);

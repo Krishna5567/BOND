@@ -217,7 +217,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
       const saved=await run({action:'credentials'},{preserveError:true});if(state.overlay!==o||switching)return;
       if(!saved){q('#profile-credentials',host).textContent='Could not unlock saved passwords. Close and reopen this section to try again.';return;}
       q('#profile-credentials',host).innerHTML=(saved.credentials||[]).map(c=>`<div class="browser-credential"><span>${esc(c.origin)}<small>${esc(c.username)}</small></span>${canFill&&c.origin===currentOrigin?`<button class="btn btn--small" data-fill="${esc(c.id)}">Fill</button>`:''}<button class="btn btn--small" data-delete="${esc(c.id)}">Delete</button></div>`).join('')||'<p class="note">No saved passwords.</p>';
-      host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Nami?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
+      host.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>ask('Delete this saved password from Bond?',async()=>{if(await run({action:'delete-credential',credentialId:b.dataset.delete}))show({...o});}));
       host.querySelectorAll('[data-fill]').forEach(b=>b.onclick=async()=>{if(await run({action:'autofill',id:view.id,credentialId:b.dataset.fill})){close();toast('Filled matching fields. Review the page before submitting.');}});
     };
   }
@@ -231,7 +231,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     let job;
     const update=j=>{
       if(!current() || j.id!==o.jobId)return; job=j;
-      q('.browser-import-context',modal).textContent=j.sourceName+' → Nami · '+j.profileName;
+      q('.browser-import-context',modal).textContent=j.sourceName+' → Bond · '+j.profileName;
       q('.browser-profile-result',modal).textContent=importStage(j)+' · '+j.profileName+(j.category && importActive(j)?' · '+j.category:'')+(j.error?' · '+j.error:'');
       q('.browser-import-results',modal).innerHTML=Object.entries(j.results).map(([category,r])=>`<div class="browser-import-result-row"><strong>${esc({cookies:'Cookies',passwords:'Saved passwords',history:'Browsing history'}[category])}</strong><span>${r.copied} copied · ${r.skipped} skipped · ${r.failed} failed</span>${r.error?`<p>${esc(r.error)}</p>`:''}${r.reasons.map(reason=>`<p>${esc(reason)}</p>`).join('')}</div>`).join('');
       q('.browser-import-explanation',modal).textContent=importActive(j)?'You can close this panel and keep browsing. Cancel stops further copying; data already copied stays in this profile.':j.state==='cancelled'?'Data copied before cancellation remains in this profile.': 'Copied cookies may still require you to sign in on the website. The source browser is unchanged.';
@@ -263,7 +263,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const source=o.sourceId===undefined?sources[0]:sources.find(s=>s.id===o.sourceId);
     const sourceError=o.sourceId && !source?'The selected browser profile is no longer available. Choose a source from the refreshed list.':'';
     const host=q('.browser-profile-body',modal);
-    if(!r.profiles?.length){host.textContent='Create a Nami profile first.';return;}
+    if(!r.profiles?.length){host.textContent='Create a Bond profile first.';return;}
     // A tab-menu entry carries a panel ID, while Manage profiles carries an
     // explicit profile. Resolve that context without substituting Personal.
     let profileId=o.profileId, contextError='';
@@ -284,7 +284,7 @@ export function createBrowserPane({ api, state, tiles, uid, esc, helpIcon, isFil
     const picked=key=>!!q('#import-'+key,host)?.checked;
     host.innerHTML=`<label class="field-label">From<select id="import-source"><option value=""${source?'':' selected'} disabled>${sources.length?'Choose a browser profile':'No browser profile found'}</option>${sources.map(s=>`<option value="${esc(s.id)}"${s.id===source?.id?' selected':''}>${esc(s.browser)} · ${esc(s.name)}</option>`).join('')}</select></label>
       <div class="browser-import-refresh"><button class="btn btn--small" id="import-refresh" type="button">Refresh list</button></div>
-      <label class="field-label">Into<select id="import-destination"><option value=""${dest?'':' selected'} disabled>Choose a Nami profile</option>${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===dest?.id?' selected':''}>Nami · ${esc(p.name)}</option>`).join('')}</select></label>
+      <label class="field-label">Into<select id="import-destination"><option value=""${dest?'':' selected'} disabled>Choose a Bond profile</option>${r.profiles.map(p=>`<option value="${esc(p.id)}"${p.id===dest?.id?' selected':''}>Bond · ${esc(p.name)}</option>`).join('')}</select></label>
       ${unavailable?`<p class="note">${esc(unavailable)}</p>`:'<p class="note">Allow Keychain access if macOS asks.</p>'}
       ${offered.includes('passwords')?`<label class="browser-check"><input type="checkbox" id="import-passwords"${checked('passwords')}><span>Saved passwords</span></label>`:''}
       ${offered.includes('cookies')?`<label class="browser-check"><input type="checkbox" id="import-cookies"${checked('cookies')}><span>Cookies</span></label>`:''}

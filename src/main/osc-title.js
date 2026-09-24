@@ -5,9 +5,9 @@
 //   \x1b]0;✳ Claude Code\x07                       before it has named anything
 //   \x1b]0;⠐ Calculate basic arithmetic problem\x07 once it has
 //
-// Nami already receives these bytes, so this costs no file reads and no polling.
+// Bond already receives these bytes, so this costs no file reads and no polling.
 // More importantly it is the ONLY title source that stays correct when the user
-// runs /resume inside a tile: the transcript path nami watches is built from the
+// runs /resume inside a tile: the transcript path Bond watches is built from the
 // session id it pinned at spawn, and /resume moves claude to a different
 // conversation entirely (measured: pinned c602aba0… → live dddf8560…, with the
 // pinned transcript never created). The title in the stream always belongs to

@@ -1,5 +1,5 @@
 // A browser-shaped CDP transport over *only* the granted WebContents debuggers.
-// No remote-debugging-port, global Target discovery, or Nami renderer target.
+// No remote-debugging-port, global Target discovery, or Bond renderer target.
 const { WebSocketServer } = require('ws');
 const { randomBytes } = require('node:crypto');
 const { browserUrl } = require('./browser-policy');
@@ -12,7 +12,7 @@ async function createCdpBridge({ entries, create, close, onCommand }) {
   let socket;
   const attached = new Map(), children = new Map();
   const send = (message) => { if (socket?.readyState === 1) socket.send(JSON.stringify(message)); };
-  const info = (e) => ({ targetId: e.targetId || e.id, browserContextId: 'nami', type: 'page', title: e.view.webContents.getTitle(), url: e.view.webContents.getURL(), attached: true, canAccessOpener: false });
+  const info = (e) => ({ targetId: e.targetId || e.id, browserContextId: 'bond', type: 'page', title: e.view.webContents.getTitle(), url: e.view.webContents.getURL(), attached: true, canAccessOpener: false });
   function allowed(id) { const e = entries().find((e) => e.id === id || e.targetId === id); if (!e || e.view.webContents.isDestroyed()) throw new Error('Browser view is not shared with this session.'); return e; }
   async function attach(e) {
     if (attached.has(e.id)) return;
@@ -38,7 +38,7 @@ async function createCdpBridge({ entries, create, close, onCommand }) {
     send({ method: 'Target.attachedToTarget', params: { sessionId: e.id, targetInfo: info(e), waitingForDebugger: false } });
   }
   async function command(method, params = {}, sid) {
-    if (process.env.NAMI_BROWSER_DEBUG) console.log('[browser-cdp]', method, sid || 'root');
+    if (process.env.BOND_BROWSER_DEBUG || process.env.NAMI_BROWSER_DEBUG) console.log('[browser-cdp]', method, sid || 'root');
     if (sid) {
       const owner = children.get(sid) || sid, e = allowed(owner);
       if (!attached.has(owner)) throw new Error('Unknown page session.');
@@ -52,11 +52,11 @@ async function createCdpBridge({ entries, create, close, onCommand }) {
       onCommand?.(e.id, method); return result;
     }
     switch (method) {
-      case 'Browser.getVersion': return { protocolVersion: '1.3', product: 'Chrome/' + process.versions.chrome, revision: '', userAgent: 'NamiBrowser' };
+      case 'Browser.getVersion': return { protocolVersion: '1.3', product: 'Chrome/' + process.versions.chrome, revision: '', userAgent: 'BondBrowser' };
       case 'Browser.setDownloadBehavior': return {};
       case 'Browser.getWindowForTarget': allowed(params.targetId); return { windowId: 1, bounds: { left: 0, top: 0, width: 1000, height: 700, windowState: 'normal' } };
       case 'Target.setAutoAttach': for (const e of entries()) await attach(e); return {};
-      case 'Target.getTargetInfo': return { targetInfo: params.targetId ? info(allowed(params.targetId)) : { targetId: 'nami-browser', type: 'browser', title: '', url: '', attached: true } };
+      case 'Target.getTargetInfo': return { targetInfo: params.targetId ? info(allowed(params.targetId)) : { targetId: 'bond-browser', type: 'browser', title: '', url: '', attached: true } };
       case 'Target.getTargets': return { targetInfos: entries().map(info) };
       case 'Target.createTarget': { const e = await create(browserUrl(params.url || 'about:blank')); await attach(e); return { targetId: e.targetId }; }
       case 'Target.closeTarget': { const e = allowed(params.targetId); await close(e.id); return { success: true }; }
@@ -71,7 +71,7 @@ async function createCdpBridge({ entries, create, close, onCommand }) {
       let m;
       try { m = JSON.parse(raw.toString()); if (!Number.isInteger(m.id) || typeof m.method !== 'string') throw new Error('Invalid request');
         const result = await command(m.method, m.params, m.sessionId); send({ id: m.id, sessionId: m.sessionId, result });
-      } catch (error) { if (process.env.NAMI_BROWSER_DEBUG) console.log('[browser-cdp-error]', m?.method, error.message); if (m) send({ id: m.id, sessionId: m.sessionId, error: { code: -32000, message: error.message } }); }
+      } catch (error) { if (process.env.BOND_BROWSER_DEBUG || process.env.NAMI_BROWSER_DEBUG) console.log('[browser-cdp-error]', m?.method, error.message); if (m) send({ id: m.id, sessionId: m.sessionId, error: { code: -32000, message: error.message } }); }
     });
   });
   return { endpoint: `ws://127.0.0.1:${server.address().port}/${secret}`, close: async () => {

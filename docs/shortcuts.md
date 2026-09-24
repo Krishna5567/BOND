@@ -2,27 +2,27 @@
 
 Small moves that make your desk easier to use.
 
-In Nami, click **Shortcuts** at the bottom right, open **Settings → Shortcuts**,
+In Bond, click **Shortcuts** at the bottom right, open **Settings → Shortcuts**,
 or choose **Help → Keyboard Shortcuts**. The reference works offline, and shows
 the keys for the computer you are on.
 
 ## Open what your agent makes
 
 Hold **Command (⌘)** on a Mac, or **Ctrl** on Windows, and click a link or file
-path in a session. Web links open in your browser. Files open here in Nami.
+path in a session. Web links open in your browser. Files open here in Bond.
 Hover a link for a reminder, or right-click it for the available actions.
 
 | Action | Mac | Windows |
 | --- | --- | --- |
 | Open a web link in your browser | ⌘ + click | Ctrl + click |
-| Open a file in Nami | ⌘ + click | Ctrl + click |
+| Open a file in Bond | ⌘ + click | Ctrl + click |
 | Reveal a file in Finder / File Explorer | ⌥⌘ + click | Ctrl+Alt + click |
 | Reveal a folder in Finder / File Explorer | ⌘ + click | Ctrl + click |
 | Open, copy, or reveal a link | Right-click | Right-click |
 
 These gestures apply to session output. Links in a document's **Read** mode
 open with a normal click. Missing file paths can still be copied from their
-right-click menu; an open hint appears only when Nami can resolve the target.
+right-click menu; an open hint appears only when Bond can resolve the target.
 
 ## Everyday shortcuts
 
@@ -76,4 +76,4 @@ On a Mac these are ⌘C, ⌘V and ⌘A, and Ctrl+C always stops the program.
 **⌘** Command · **⌥** Option · **⇧** Shift
 
 Shortcuts inside an agent's terminal can vary by agent. This reference covers
-Nami's controls.
+Bond's controls.

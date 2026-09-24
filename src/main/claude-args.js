@@ -8,7 +8,7 @@
 //   restored + sid, no file→ --session-id sid   (was never used; start it now)
 //   restored, no sid       → --continue         (legacy snapshot migration)
 //
-// `name` rides along whenever nami picked the tile's name deliberately — it
+// `name` rides along whenever Bond picked the tile's name deliberately — it
 // writes a custom-title into the transcript, so the session reads the same in
 // `claude --resume` and `claude agents` as it does in the rail. Verified to
 // work alongside --resume, not only on a fresh spawn.

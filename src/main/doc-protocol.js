@@ -4,7 +4,7 @@
 // trusting rather than checking.
 //
 // A viewed HTML page is served from its own origin so its relative images load
-// and it still cannot reach Nami (see main.js and the design note). This file
+// and it still cannot reach Bond (see main.js and the design note). This file
 // answers one question for the handler: given a request URL, what real file on
 // disk does it mean, and is that file inside the folder the document was opened
 // from? Anything that resolves outside the root — via .., an absolute path, or a

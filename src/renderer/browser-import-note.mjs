@@ -15,6 +15,6 @@ export function importCategories(capability) {
 // '' means "say what the screen has always said". Anything else replaces it.
 export function importNote(capability) {
   if (!capability || capability.available !== false) return '';
-  if (capability.reason === 'windows-app-bound') return 'Windows browsers lock their saved sign-ins to the browser itself, so Nami cannot copy them; signing in inside this browser tile works and is remembered.';
+  if (capability.reason === 'windows-app-bound') return 'Windows browsers lock their saved sign-ins to the browser itself, so Bond cannot copy them; signing in inside this browser tile works and is remembered.';
   return 'Saved sign-ins cannot be copied from another browser here; signing in inside this browser tile works and is remembered.';
 }

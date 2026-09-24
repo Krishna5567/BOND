@@ -1,5 +1,5 @@
 // Isolated selection helper: only geometry and public page metadata cross IPC.
-// Comments, microphones, recipients and all annotation UI belong to Nami.
+// Comments, microphones, recipients and all annotation UI belong to Bond.
 const { ipcRenderer } = require('electron');
 const documentId = crypto.randomUUID();
 const tracked = new Map();

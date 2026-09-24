@@ -15,7 +15,7 @@ import { sessionHome } from './home-path.mjs';
 export const CHAT_READY = ['claude', 'kimi', 'codex', 'opencode', 'grok', 'hermes'];
 
 export function mountChatPane(p, rec, hooks) {
-  const api = window.dainami;
+  const api = window.bond || window.dainami;
   const body = rec.body;
   body.classList.add('cw-body');
   body.innerHTML = '<div class="cw-transcript"></div><div class="cw-composer-host"></div>';
@@ -55,7 +55,7 @@ export function mountChatPane(p, rec, hooks) {
     if (!hooks.browserConnection) return {};
     try {
       const connection = await hooks.browserConnection(p);
-      return { mcpServers: connection?.mcpServers || (connection?.url ? [{ name: 'nami-browser', type: 'http', url: connection.url, headers: [] }] : []) };
+      return { mcpServers: connection?.mcpServers || (connection?.url ? [{ name: 'bond-browser', type: 'http', url: connection.url, headers: [] }] : []) };
     } catch (_) { return {}; }
   }
 
@@ -212,7 +212,7 @@ export function mountChatPane(p, rec, hooks) {
     }
     return { ok: true, imageMode };
   };
-  composer.setSkills((window.__namiSkills || []).length ? window.__namiSkills : [
+  composer.setSkills((window.__bondSkills || window.__namiSkills || []).length ? (window.__bondSkills || window.__namiSkills) : [
     { name: 'collector', description: 'pulls structured data off pages' },
     { name: 'engineer', description: 'edits the repo, runs tests, opens a PR' },
     { name: 'researcher', description: 'reads the web and writes a brief' },

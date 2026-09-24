@@ -1,4 +1,4 @@
-// The shell announcing that the command Nami typed into it has finished.
+// The shell announcing that the command Bond typed into it has finished.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { doneSuffix, oneShotArgs, feedRunDone } = require('../src/main/run-done.js');
 
-const SEQ = (code) => `\x1b]1337;NamiRunDone=${code}\x07`;
+const SEQ = (code) => `\x1b]1337;BondRunDone=${code}\x07`;
 
 // Half of this file hands the suffix to a real /bin/zsh, because a string this
 // file wrote proves nothing about what a shell prints. Windows has no zsh to ask;
@@ -96,7 +96,7 @@ test('nothing of the sequence is left visible in the output', { skip: NO_ZSH }, 
   const out = execFileSync('/bin/zsh', ['-c', doneSuffix('echo installed')], { encoding: 'utf8' });
   assert.match(out, /installed/);
   // no literal escape text leaked into what the user reads
-  assert.doesNotMatch(out, /printf|033|NamiRunDone=%s/);
+  assert.doesNotMatch(out, /printf|033|(?:Bond|Nami)RunDone=%s/);
 });
 
 // The measurement that decided how much the exit code is worth. Four of the six
@@ -119,7 +119,7 @@ test('a one-shot is spawned with its command, so nothing is typed', () => {
   assert.equal(args[0], '-i');
   assert.equal(args[1], '-c');
   assert.match(args[2], /^curl -fsSL https:\/\/x\/i\.sh \| bash;/);
-  assert.match(args[2], /NamiRunDone/);
+  assert.match(args[2], /BondRunDone/);
   // and the tile is still a terminal afterwards, on a shell that re-read the
   // rc file the installer just wrote to
   assert.match(args[2], /exec \/bin\/zsh -i$/);

@@ -1,12 +1,12 @@
 // What to tell the user when a session's process goes away.
 //
 // The raw number is not the answer. A pty killed with SIGHUP — which is what
-// node-pty's kill() sends, and therefore what quitting Nami, closing a window,
+// node-pty's kill() sends, and therefore what quitting Bond, closing a window,
 // or closing a tile all send — exits 129, and "[process exited · 129]" reads as
 // a crash to anyone who does not know that 129 is 128+1. It is the most normal
 // event in the app, reported in its most alarming form.
 //
-// So: say who ended it. Nami closing a session says so. A program that finished
+// So: say who ended it. Bond closing a session says so. A program that finished
 // on its own says so. Only a genuine fault keeps the number, because there the
 // number is the one useful thing.
 const SIGNALS = { 1: 'SIGHUP', 2: 'SIGINT', 3: 'SIGQUIT', 9: 'SIGKILL', 15: 'SIGTERM' };
@@ -68,7 +68,7 @@ function windowsNote(code) {
 }
 
 function exitNote({ code, signal, deliberate } = {}, platform = process.platform) {
-  // Nami pulled the plug: quitting, closing the window, closing the tile. The
+  // Bond pulled the plug: quitting, closing the window, closing the tile. The
   // user did this, so there is nothing to report but the fact.
   if (deliberate) return 'session closed';
   if (platform === 'win32') {

@@ -1,4 +1,4 @@
-/* Nami — "dusk": the soft extrusion system in dark grey.
+/* Bond — "dusk": the soft extrusion system in dark grey.
    Only a token remap lives here — the structural system comes from the
    body[data-soft] rules in theme-soft.css. Spec: 2026-08-26-soft-dusk-themes.md */
 
@@ -59,10 +59,12 @@ body[data-theme="dusk"] {
   --tree-ink: #e8eaee;
   --tree-fill: #262a31;
   --tree-fill-open: #262a31;
-  --tree-fill-file: #262a31;
-  --nami-fill: #00A86B;
-  --nami-foam: #262a31;
-  --nami-eye: #262a31;
+  --bond-fill: #00A86B;
+  --bond-foam: #262a31;
+  --bond-eye: #262a31;
+  --nami-fill: var(--bond-fill);
+  --nami-foam: var(--bond-foam);
+  --nami-eye: var(--bond-eye);
   --sf-d: rgba(10, 12, 16, 0.50);
   --sf-l: rgba(58, 64, 74, 0.70);
   --sf-in-d: rgba(8, 10, 14, 0.45);

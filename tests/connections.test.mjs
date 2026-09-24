@@ -43,9 +43,9 @@ test('validServiceId accepts normal ids, rejects shell metacharacters', () => {
 
 // ---- masters ----------------------------------------------------------------
 
-test('masterPath: project scope in the project, user scope under ~/.nami', () => {
+test('masterPath: project scope in the project, user scope under ~/.bond', () => {
   assert.equal(masterPath({ scope: 'project', projectPath: PROJ, homeDir: HOME }), proj('connections.json'));
-  assert.equal(masterPath({ scope: 'user', projectPath: PROJ, homeDir: HOME }), home('.nami/connections.json'));
+  assert.equal(masterPath({ scope: 'user', projectPath: PROJ, homeDir: HOME }), home('.bond/connections.json'));
 });
 
 test('upsertMaster writes the standard mcpServers shape and round-trips', () => {
@@ -123,13 +123,13 @@ test('writeCodexBlock appends once, then replaces only between markers', () => {
   writeCodexBlock({ file: proj('.codex/config.toml'), masters: { notion: NOTION }, io });
   const first = io.files[proj('.codex/config.toml')];
   assert.match(first, /^# theirs\nmodel = "gpt-5"\n/);
-  assert.match(first, /# nami:connections start/);
+  assert.match(first, /# bond:connections start/);
   writeCodexBlock({ file: proj('.codex/config.toml'), masters: { linear: LINEAR }, io });
   const second = io.files[proj('.codex/config.toml')];
   assert.match(second, /model = "gpt-5"/);
   assert.match(second, /mcp_servers\.linear/);
   assert.ok(!second.includes('mcp_servers.notion'), 'old block fully replaced');
-  assert.equal(second.split('# nami:connections start').length, 2, 'one block only');
+  assert.equal(second.split('# bond:connections start').length, 2, 'one block only');
 });
 
 test('writeCodexBlock creates the file when missing and refuses on two start markers', () => {
@@ -302,9 +302,10 @@ test('antigravity aliases the gemini notebook, and unknown tools never read as m
   assert.deepEqual(cov.notion.missing, []);
 });
 
-// Nami Browser is a per-session MCP, never a catalog connection. A bearer URL
+// Bond Browser is a per-session MCP, never a catalog connection. A bearer URL
 // must not land in connections.json or get copied into every agent's notebook.
-test('nami-browser is reserved and never written to the master', () => {
+test('bond-browser and nami-browser are reserved and never written to the master', () => {
+  assert.equal(reservedServiceId('bond-browser'), true);
   assert.equal(reservedServiceId('nami-browser'), true);
   assert.equal(reservedServiceId('notion'), false);
   const io = memIo();

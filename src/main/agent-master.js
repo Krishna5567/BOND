@@ -22,17 +22,20 @@ const fsIo = {
   list: (dir) => { try { return fs.readdirSync(dir); } catch (_) { return []; } },
 };
 
-const MARKER_HEAD = 'made by Nami from agents/';
+const MARKER_HEAD = 'made by Bond from agents/';
 const marker = (slug, ext) => (ext === 'toml' ? '# ' : '<!-- ')
   + MARKER_HEAD + slug + '.md — edit that file; this copy is regenerated'
   + (ext === 'toml' ? '' : ' -->');
 
-function isDelivered(text) { return String(text || '').slice(0, 4000).includes(MARKER_HEAD); }
+function isDelivered(text) {
+  const head = String(text || '').slice(0, 4000);
+  return head.includes(MARKER_HEAD) || head.includes('made by Nami from agents/');
+}
 
 // ---- parse ------------------------------------------------------------------
 // The same forgiving frontmatter read library.js uses, plus the body — kept
 // local so this module stays main-process-pure and testable.
-// `tool` (singular) is Nami's own: which tool this agent was written for. It is
+// `tool` (singular) is Bond's own: which tool this agent was written for. It is
 // a hint the picker reads, never a lock, and no dialect renderer touches it —
 // putting an unknown key in somebody else's format is a change to their format.
 // It sits next to `tools` (plural, the permission list) and the exact-match
@@ -147,7 +150,7 @@ function deliveryState({ projectPath, slug, agentIds, io = fsIo, homeDir }) {
   const targets = copyTargets(projectPath, slug, homeDir);
   return (agentIds || []).map((agent) => {
     const t = targets[agent];
-    if (!t) return { agent, slug, state: 'none', reason: `Nami has no agent format for ${agent}` };
+    if (!t) return { agent, slug, state: 'none', reason: `Bond has no agent format for ${agent}` };
     if (t.kind === 'via') return { agent, slug, state: 'via', via: t.via };
     if (t.kind === 'none') return { agent, slug, state: 'none', reason: t.reason };
     if (!io.exists(t.file)) return { agent, slug, state: 'soon', file: t.file };

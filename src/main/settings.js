@@ -47,7 +47,7 @@ const THEMES = ['paper', 'operator', 'glass', 'graphite', 'soft', 'dusk'];
 // What a new install opens on. Paper is the design language and still the base
 // stylesheet everything else is layered over — this is only which desk you are
 // handed first, and glass is the one that reads as a current Mac app to
-// somebody who has never seen Nami before. Anyone who has chosen a theme keeps
+// somebody who has never seen Bond before. Anyone who has chosen a theme keeps
 // it: this is consulted only when nothing has been chosen.
 const DEFAULT_THEME = 'operator';
 // First-paint window background per theme (renderer CSS takes over on load).

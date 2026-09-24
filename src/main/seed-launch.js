@@ -69,7 +69,7 @@ function withPromptArgs(line, promptArgs, { quote, shell = '' } = {}) {
 function initialPromptEnv(env, agentId, seed) {
   const out = { ...env };
   // A first message belongs to this launch, never to a restored session or a
-  // Nami instance opened from inside another Hermes conversation.
+  // Bond instance opened from inside another Hermes conversation.
   delete out.HERMES_TUI_QUERY;
   if (agentId === 'hermes' && typeof seed === 'string' && seed && !seed.includes('\0')) out.HERMES_TUI_QUERY = seed;
   return out;

@@ -1,4 +1,4 @@
-// A path that names another computer, and whether Nami may go there unasked.
+// A path that names another computer, and whether Bond may go there unasked.
 //
 // On Windows \\server\share\file is a path like any other, and that is the
 // trouble with it. The moment anything stats it, reads it or puts it in an

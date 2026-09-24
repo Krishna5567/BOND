@@ -104,8 +104,8 @@ const pending = (name) => path.join('/c', 'pending', name);
 
 test('a complete staged download is found', () => {
   const io = stubFs({
-    [pending('update-info.json')]: '{"fileName":"Nami-arm64.zip","sha512":"x"}',
-    [pending('Nami-arm64.zip')]: 'bytes',
+    [pending('update-info.json')]: '{"fileName":"Bond-arm64.zip","sha512":"x"}',
+    [pending('Bond-arm64.zip')]: 'bytes',
   });
   assert.equal(hasStagedFile('/c', io), true);
 });
@@ -113,7 +113,7 @@ test('a complete staged download is found', () => {
 test('info without the file it names is not a staged download', () => {
   // electron-updater empties this directory on some failures, and a note
   // pointing at a file that is gone must not read as "ready to install".
-  const io = stubFs({ [pending('update-info.json')]: '{"fileName":"Nami-arm64.zip"}' });
+  const io = stubFs({ [pending('update-info.json')]: '{"fileName":"Bond-arm64.zip"}' });
   assert.equal(hasStagedFile('/c', io), false);
 });
 

@@ -1,4 +1,4 @@
-// Mirror only Nami-owned floating UI into trusted native child surfaces. Each
+// Mirror only Bond-owned floating UI into trusted native child surfaces. Each
 // view occupies its actual surface bounds; the guest stays live around it.
 export function createBrowserOverlays({ api }) {
   const records = new Map(); let serial = 0, previous = '';

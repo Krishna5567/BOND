@@ -1,8 +1,8 @@
 // The application menu: six menus, written out by hand, none of them Electron's.
 //
-// Nami shipped with Electron's stock menu, which is why the Nami menu offered
+// Bond shipped with Electron's stock menu, which is why the Bond menu offered
 // Services, Hide Others and Show All, why Edit offered smart quotes to an app
-// whose text is prompts and paths, and why About Nami opened the grey macOS
+// whose text is prompts and paths, and why About Bond opened the grey macOS
 // panel that credited a person instead of the company. Nothing the app can
 // actually do appeared up there: ⌘N, ⌘O, ⌘K, ⌘, and ⌘S all worked with no menu
 // to say so, and a Mac user reads the menu bar to find out what an app can do.
@@ -75,7 +75,7 @@ function buildMenuTemplate({
 
   // File is new. It is also where ⌘W lives, and the reason this file has a test
   // shouting about it: the conventional Mac File menu holds `role: 'close'`,
-  // which binds ⌘W to Close Window, and Nami binds ⌘W to close the active
+  // which binds ⌘W to Close Window, and Bond binds ⌘W to close the active
   // *pane*. A menu accelerator outranks a renderer keydown, so the
   // conventional item would silently turn "close this tile" into "close the
   // window and lose every session in it". Close Pane is routed to the same
@@ -154,7 +154,7 @@ function buildMenuTemplate({
   ];
 
   // role: 'window' rather than a plain label, because that is what tells macOS
-  // to append the list of open windows underneath. Nami is a window per project
+  // to append the list of open windows underneath. Bond is a window per project
   // space, so that list is how you get between two folders.
   //
   // zoom and front are roles only macOS has: the green button's resize, and
@@ -174,10 +174,10 @@ function buildMenuTemplate({
   // at it. Keyboard Shortcuts stays inside the app, because the answer is
   // already in Settings.
   //
-  // ★ Star Nami lives here and not in the Nami menu on purpose. The Nami menu
+  // ★ Star Bond lives here and not in the Bond menu on purpose. The Bond menu
   // is opened with intent, for Settings or Quit, and an ask parked there taxes
   // every one of those visits. Help is where a Mac user looks for the project
-  // itself, and About Nami already reaches the star in one hop: the pane it
+  // itself, and About Bond already reaches the star in one hop: the pane it
   // opens has the star button as its primary action.
   const helpSubmenu = [
     link('Bond Docs', LINKS.docs),
@@ -232,7 +232,7 @@ function menuRoles(template) {
 // COMMANDS has a button, a tab or a row somewhere, and the About pane carries
 // the links. tests/app-menu-windows.test.mjs holds the list, item by item, so a
 // new menu item cannot be added without someone deciding where a PC user finds
-// it. These are the ones with nowhere else to live. They hang off the Nami mark
+// it. These are the ones with nowhere else to live. They hang off the Bond mark
 // at the top left, which is where a Windows window has always kept its menu.
 function buildWindowsExtrasTemplate({ open } = {}) {
   return [

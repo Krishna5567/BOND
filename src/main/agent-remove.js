@@ -68,7 +68,7 @@ function programFiles(binPath, { home, env, platform }) {
 function planRemoval({ id, binPath, home, platform = process.platform, env = process.env }) {
   const agent = agentById(id);
   const lc = lifecycleFor(agent, platform);
-  if (!lc) return { mode: 'none', reason: 'Nami does not know how to remove this one.' };
+  if (!lc) return { mode: 'none', reason: 'Bond does not know how to remove this one.' };
 
   if (lc.uninstall) {
     return {

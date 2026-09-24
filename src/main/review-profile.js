@@ -22,8 +22,8 @@ function createReviewProfile({ argv, normalPath, packaged, reviewBuild = false, 
   }
   const owned = review && !persistent && !explicit;
   const directory = explicit ? path.resolve(explicit)
-    : persistent ? path.join(homePath, 'Library', 'Application Support', 'Nami Review')
-      : owned ? fs.mkdtempSync(path.join(os.tmpdir(), 'nami-review-'))
+    : persistent ? path.join(homePath, 'Library', 'Application Support', 'Bond Review')
+      : owned ? fs.mkdtempSync(path.join(os.tmpdir(), 'bond-review-'))
       : normalPath + (packaged ? '' : '-dev');
   return {
     review,

@@ -43,7 +43,7 @@ export function buildCreateSeed({ type, platform, scope, name, desc, projectPath
       + 'able to follow it, so do not mention a specific tool unless the skill is genuinely about '
       + 'one. Then tell me its final name and where it landed.';
   }
-  // A master agent is not built "for" any one tool — Nami copies it to each
+  // A master agent is not built "for" any one tool — Bond copies it to each
   // tool's folder afterwards, so the prompt asks for the superset frontmatter
   // and stays quiet about brands for the same reason the skill seed does.
   if (type === 'agent' && platform === 'project') {

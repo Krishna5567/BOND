@@ -8,9 +8,6 @@
 # UTMs are fine here — GitHub renders the name and the blurb, never the URL.
 blank_issues_enabled: true
 contact_links:
-  - name: Want Nami for your team?
-    url: https://dainami.ai/?utm_source=github&utm_medium=issue-chooser&utm_campaign=teams
-    about: Custom builds, Windows, or Nami wired into your own stack.
-  - name: Made by Cal
-    url: https://dainami.ai/links?utm_source=github&utm_medium=issue-chooser
-    about: What I'm building, and everywhere else to find me.
+  - name: Bond AI Discussion & Issues
+    url: https://github.com/Krishna5567/BOND/issues
+    about: Get help, report issues, or suggest new features for Bond.

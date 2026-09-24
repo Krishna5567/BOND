@@ -169,7 +169,7 @@ function statusColors() { return STATUS_COLORS[currentTheme()]; }
 // SF Mono in every theme's terminal and throughout Operator.
 //
 // Courier Prime is a typewriter face: thin strokes, low x-height, wide letters.
-// It is what makes Nami's chrome look hand-made and it is the worst thing about
+// It is what makes Bond's chrome look hand-made and it is the worst thing about
 // reading a dense terminal — an agent's output is small, dense, and rarely
 // re-read carefully, which is the opposite of what that face is for. The glass
 // themes already made this trade; the rest now follow.
@@ -234,7 +234,7 @@ function setTheme(name, persistIt = true) {
 // Before first paint, and before boot data arrives. An install that has never
 // chosen a theme gets the default rather than the base stylesheet, which is
 // what "paper is the absence of an attribute" would otherwise hand it.
-try { applyThemeAttrs(localStorage.getItem(THEME_KEY) || localStorage.getItem('dainami-theme') || DEFAULT_THEME); } catch (_) { applyThemeAttrs(DEFAULT_THEME); }
+try { applyThemeAttrs(localStorage.getItem(THEME_KEY) || localStorage.getItem('bond-theme') || localStorage.getItem('dainami-theme') || DEFAULT_THEME); } catch (_) { applyThemeAttrs(DEFAULT_THEME); }
 
 // ---- launcher rows ---------------------------------------------------------
 // Agents come from the detected registry (S.agents); only Terminal is static.
@@ -262,7 +262,7 @@ const S = {
   treeEdit: null,                  // { path } while a rename input is open
   treeDrag: null,                  // path being dragged, for the descendant guard
   treeFresh: new Set(),            // rows that just landed, briefly marked
-  treeAll: localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
+  treeAll: localStorage.getItem('bond-tree-all') === '1' || localStorage.getItem('dainami-tree-all') === '1',  // show ignored files too
   // Your project's skills are what you came for; other tools' folders and broken
   // links start folded, or 139 borrowed rows sit between you and everything else.
   library: { items: [], edges: [], q: '', loaded: false, loading: false, macLoaded: false, macLoading: false, collapsed: new Set(MAC_GROUP_KEYS), macGen: 0 },
@@ -300,7 +300,7 @@ async function insertAnnotation(payload,destinations) {
     if(rec.insertSessionDraft) {
       const r=await rec.insertSessionDraft({text,images:payload.image?[payload.image]:[]});ok=r?.ok;
     } else {
-      if(payload.image)text+=`\n\nScreenshot file reference: ${JSON.stringify(payload.image.path)}\nNami image ID: ${payload.image.id} (available through nami_read_annotation_image when connected).`;
+      if(payload.image)text+=`\n\nScreenshot file reference: ${JSON.stringify(payload.image.path)}\nBond image ID: ${payload.image.id} (available through bond_read_annotation_image when connected).`;
       ok=await insertSessionText(id,text,{focus:false});
     }
     if(ok){inserted.push(id);rememberContext(id,{reference:payload.reference||payload.url,text,insertedAt:Date.now()});}
@@ -354,13 +354,16 @@ function isFileDrag(e) { return dragTypes(e).includes('Files'); }
 // Whether the row is a folder rides as a second *type* rather than as data, for
 // exactly that reason: the canvas has to refuse a folder while you are still
 // holding it, and a hidden payload cannot answer that.
+const BOND_PATH_TYPE = 'application/x-bond-path';
 const PATH_TYPE = 'application/x-nami-path';
+const BOND_DIR_TYPE = 'application/x-bond-dir';
 const DIR_TYPE = 'application/x-nami-dir';
+const BOND_PANEL_TYPE = 'application/x-bond-panel';
 const PANEL_TYPE = 'application/x-nami-panel'; // a file row dragged onto a session row in the rail
 function dragTypes(e) { return Array.from((e.dataTransfer && e.dataTransfer.types) || []); }
-function isPathDrag(e) { return dragTypes(e).includes(PATH_TYPE); }
-function isDirDrag(e) { return dragTypes(e).includes(DIR_TYPE); }
-function draggedPath(e) { try { return e.dataTransfer.getData(PATH_TYPE) || ''; } catch (_) { return ''; } }
+function isPathDrag(e) { const t = dragTypes(e); return t.includes(BOND_PATH_TYPE) || t.includes(PATH_TYPE); }
+function isDirDrag(e) { const t = dragTypes(e); return t.includes(BOND_DIR_TYPE) || t.includes(DIR_TYPE); }
+function draggedPath(e) { try { return e.dataTransfer.getData(BOND_PATH_TYPE) || e.dataTransfer.getData(PATH_TYPE) || ''; } catch (_) { return ''; } }
 function droppedPaths(e) {
   return Array.from((e.dataTransfer && e.dataTransfer.files) || [])
     .map((f) => api.droppedFilePath(f)).filter(Boolean);
@@ -409,7 +412,7 @@ function dropPathOnPanel(p, path, isDir) {
   setHome(b.home);
   S.version = b.version || ''; S.updatedAt = b.updatedAt || null;
   // The wordmark's caption. Rendered empty by buildShell and filled here, so
-  // the lockup is never laid out twice — the stack is sized by Nami above it,
+  // the lockup is never laid out twice — the stack is sized by Bond above it,
   // and a build that somehow reports no version simply shows nothing.
   if (S.version) { const bv = q('#brand-ver'); if (bv) bv.textContent = 'v' + S.version; }
   S.review = !!b.review;
@@ -458,7 +461,7 @@ function dropPathOnPanel(p, path, isDir) {
     savePanels();
   });
 
-  // A one-shot command Nami ran on the user's behalf has landed. The shell is
+  // A one-shot command Bond ran on the user's behalf has landed. The shell is
   // still alive and still theirs — this is the command reporting, not the tile
   // ending. See src/main/run-done.js for how the shell says so.
   api.onTermCommandDone(({ id, code }) => {
@@ -469,7 +472,7 @@ function dropPathOnPanel(p, path, isDir) {
   api.onTermExit(({ id, code, note }) => {
     const p = S.panels.find((x) => x.id === id); if (!p) return;
     p.exited = true; p.status = 'exited';
-    // main writes the note, because only it knows whether Nami ended this
+    // main writes the note, because only it knows whether Bond ended this
     // session or the process did. `code` stays in the payload for older paths.
     const said = note || `exited · ${code}`;
     const t = tileEls.get(id); if (t && t.term) t.term.write(`\r\n\x1b[38;2;141;128;101m[${said}]\x1b[0m\r\n`);
@@ -488,7 +491,7 @@ function dropPathOnPanel(p, path, isDir) {
   });
 
   // /resume inside a tile lands claude in a different conversation than the one
-  // nami pinned at spawn. Storing the id it actually moved to is what makes the
+  // Bond pinned at spawn. Storing the id it actually moved to is what makes the
   // tile come back as that conversation next launch instead of an empty one.
   api.onSessionSid(({ id, sid }) => {
     const p = S.panels.find((x) => x.id === id); if (!p || !sid || p.sid === sid) return;
@@ -696,7 +699,7 @@ function showScene(name) {
   if (what === 'update') {
     localStorage.removeItem(SKIPPED_UPDATE);
     const staged = step === 'downloading' || step === 'ready' || step === 'confirm';
-    offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Nami.dmg' });
+    offerUpdate({ version: staged ? '0.2.0' : (step || '0.2.0'), url: 'https://example.test/Bond.dmg' });
     if (staged) paintUpdate(step, { percent: 58, version: '0.2.0', live: 3 });
     return undefined;
   }
@@ -788,7 +791,7 @@ function showScene(name) {
 // Windows has no menu bar to look in: the window has no title bar, so it has no
 // menu either. Almost everything up there already has a button or a row in the
 // app; the few items that do not (zoom, full screen, Terms, the developer
-// tools — src/main/app-menu.js keeps the list) open from the Nami mark, which is
+// tools — src/main/app-menu.js keeps the list) open from the Bond mark, which is
 // where a Windows window has always kept its menu. The menu is main's and
 // native, so its roles are the real ones. On a Mac the mark stays a picture.
 //
@@ -805,7 +808,7 @@ function wireBrandMenu() {
   mark.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
 }
 
-// Every Nami item in the application menu arrives here as a string. The rule
+// Every Bond item in the application menu arrives here as a string. The rule
 // this file keeps is that a menu item never has its own implementation: it
 // calls the same function the keyboard or the button already called, so there
 // is one behaviour per command and the menu only adds a label to it.
@@ -1331,14 +1334,14 @@ function refreshSessionsRail(c) {
     row.onclick = () => focusPanel(f.id);
     row.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, moveMenu(f)); };
     // drag a file row onto a session row (or the Desk heading) to move it
-    row.ondragstart = (e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData(PANEL_TYPE, f.id); e.dataTransfer.setData('text/plain', f.id); } catch (_) {} row.classList.add('dragging'); };
+    row.ondragstart = (e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData(BOND_PANEL_TYPE, f.id); e.dataTransfer.setData(PANEL_TYPE, f.id); e.dataTransfer.setData('text/plain', f.id); } catch (_) {} row.classList.add('dragging'); };
     row.ondragend = () => row.classList.remove('dragging');
     return row;
   };
   const dropTarget = (el, ownerId) => {
-    el.addEventListener('dragover', (e) => { if (!Array.from(e.dataTransfer.types).includes(PANEL_TYPE)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-into'); });
+    el.addEventListener('dragover', (e) => { const dt = Array.from(e.dataTransfer.types); if (!dt.includes(BOND_PANEL_TYPE) && !dt.includes(PANEL_TYPE)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-into'); });
     el.addEventListener('dragleave', () => el.classList.remove('drop-into'));
-    el.addEventListener('drop', (e) => { el.classList.remove('drop-into'); const id = e.dataTransfer.getData(PANEL_TYPE); if (!id) return; e.preventDefault(); e.stopPropagation(); const f = S.panels.find((x) => x.id === id); if (f && isFilePanel(f)) moveFileTo(f, ownerId); });
+    el.addEventListener('drop', (e) => { el.classList.remove('drop-into'); const id = e.dataTransfer.getData(BOND_PANEL_TYPE) || e.dataTransfer.getData(PANEL_TYPE); if (!id) return; e.preventDefault(); e.stopPropagation(); const f = S.panels.find((x) => x.id === id); if (f && isFilePanel(f)) moveFileTo(f, ownerId); });
   };
   const g = groupRail(S.panels);
   for (const { session: p, files } of g.sessions) {
@@ -1464,8 +1467,12 @@ function renderTreeLevel(container, dir, depth) {
       e.dataTransfer.effectAllowed = 'copyMove';
       try {
         e.dataTransfer.setData('text/plain', n.path);
+        e.dataTransfer.setData(BOND_PATH_TYPE, n.path);
         e.dataTransfer.setData(PATH_TYPE, n.path);
-        if (n.kind === 'dir') e.dataTransfer.setData(DIR_TYPE, n.path);
+        if (n.kind === 'dir') {
+          e.dataTransfer.setData(BOND_DIR_TYPE, n.path);
+          e.dataTransfer.setData(DIR_TYPE, n.path);
+        }
       } catch (_) {}
     };
     row.ondragend = () => { S.treeDrag = null; row.classList.remove('dragging'); clearDropMarks(); };
@@ -1770,7 +1777,7 @@ async function addTileToSession(p) {
   const ok = await insertSessionText(target.id, text, { focus: true });
   toast(ok ? 'Added to ' + (target.title || 'the session') + '.' : 'Could not add that here.');
 }
-// Leave Nami for the Mac's browser: a saved HTML file through the file
+// Leave Bond for the Mac's browser: a saved HTML file through the file
 // channel, a website through the url one. Main guards both — a .md, a
 // file:// that is not HTML, a custom scheme: none of them gets out.
 async function openOutside(p) {
@@ -1988,7 +1995,7 @@ function availabilityTag(i) {
   if (i.availability === 'agent') {
     const a = (S.agents || []).find((x) => x.id === i.ownerAgent);
     const who = (a && a.name) || i.ownerAgent;
-    return { text: who + ' only', tone: 'mute', title: `${who} reads this folder itself. Nami's sessions here won't see it unless you copy it in.` };
+    return { text: who + ' only', tone: 'mute', title: `${who} reads this folder itself. Bond's sessions here won't see it unless you copy it in.` };
   }
   return { text: 'not wired', tone: 'mute', title: 'It sits in a shared folder that no agent reads. Copy it here to use it.' };
 }
@@ -2013,7 +2020,7 @@ async function refreshPointer(force) {
 }
 function installedAgentIds() { return (S.agents || []).filter((a) => a.found).map((a) => a.id); }
 function agentNameOf(id) { const a = (S.agents || []).find((x) => x.id === id); return a ? a.name : id; }
-// A `## Skills` heading the user wrote themselves. Nami appends below it rather
+// A `## Skills` heading the user wrote themselves. Bond appends below it rather
 // than taking it over — their wording is usually better than anything generated
 // from frontmatter, and rewriting prose we didn't author is not a trade worth
 // making. But two Skills sections in one file is worth mentioning once.
@@ -2267,7 +2274,7 @@ function emptyDeskHtml() {
 }
 
 // Hands off to the save panel in main, then through the ordinary switch path —
-// a folder Nami made is not a special kind of folder once it exists.
+// a folder Bond made is not a special kind of folder once it exists.
 async function makeFolderDialog() {
   const info = await api.makeFolder();
   if (!info) return;
@@ -3463,7 +3470,7 @@ function registerTerminalLinks(term, p) {
 // wraps in bracketed-paste markers and what wireImagePaste reads a screenshot
 // out of — a clipboard read of our own would carry text and nothing else.
 //
-// 'app' is one of Nami's own chords — Ctrl+Shift+T, Ctrl+Shift+K and the rest.
+// 'app' is one of Bond's own chords — Ctrl+Shift+T, Ctrl+Shift+K and the rest.
 // xterm is told it is not a terminal key, and nothing is cancelled: a cancelled
 // keydown stops here, and this one has to travel on up to onGlobalKey, or to
 // the menu's accelerator for the ones that live only there.
@@ -3552,7 +3559,7 @@ function oscLinkHandler(p) {
 }
 async function startProcess(p, cols, rows) {
   if (p.started) return; p.started = true;
-  // A name nami chose deliberately rides down into claude, so the conversation
+  // A name Bond chose deliberately rides down into claude, so the conversation
   // reads the same from every other surface that lists it.
   const name = shouldPushName(p.titleSource) ? p.title : null;
   const made = await api.termCreate({ id: p.id, cwd: p.cwd, cols, rows, kind: p.kind, command: p.command, program: p.program, args: p.args, seed: p.seed, cont: p.cont, sid: p.sid, acpSid: p.acpSid, name, watchDone: !!p.watchDone, oneShot: !!p.oneShot, purpose: p.purpose, agentId: p.agentId });
@@ -3986,7 +3993,7 @@ function mountEditor(p, rec) {
         // The page renders from the buffer, not the file, so Edit → Read shows
         // unsaved changes — the same live round trip markdown has. Sandboxed
         // exactly like the standalone viewer: scripts run, but the page has an
-        // opaque origin and cannot reach Nami. The injected <base> makes the
+        // opaque origin and cannot reach Bond. The injected <base> makes the
         // page's own relative images and stylesheets resolve beside the file;
         // the parser hoists it into <head> wherever the document starts.
         read.innerHTML = '';
@@ -3997,7 +4004,7 @@ function mountEditor(p, rec) {
           // buffer in an opaque sandbox — the change shows live, its relative
           // images do not (an opaque origin cannot fetch file://), and they
           // return the moment you save. allow-scripts only; no same-origin,
-          // because a srcdoc page shares Nami's file:// origin and the flag
+          // because a srcdoc page shares Bond's file:// origin and the flag
           // would let it read the app.
           f.setAttribute('sandbox', 'allow-scripts');
           const text = p.text || '';
@@ -4006,7 +4013,7 @@ function mountEditor(p, rec) {
         } else {
           // Saved → served from nami-doc://, its own origin. Relative images
           // load, and allow-same-origin is safe: "same origin" is the page's
-          // nami-doc origin, cross-origin to Nami, so it still cannot reach the
+          // nami-doc origin, cross-origin to Bond, so it still cannot reach the
           // app (proved by the hostile-page test). connect-src 'none' in the
           // served CSP stops it sending anything it read anywhere.
           f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
@@ -4088,7 +4095,7 @@ function mountViewer(p, rec) {
   else if (p.sub === 'audio') wrap.innerHTML = `<div class="vw-stage vw-stage--pad"><div class="vw-glyph">♪</div><div class="vw-name">${esc(p.title)}</div><audio src="${esc(url)}" controls></audio></div>`;
   else if (p.sub === 'pdf') wrap.innerHTML = `<iframe class="vw-pdf" src="${esc(url)}"></iframe>`;
   // Served from nami-doc://, the page's own origin — relative images load and
-  // allow-same-origin is safe because that origin is cross-origin to Nami (see
+  // allow-same-origin is safe because that origin is cross-origin to Bond (see
   // the Read tab in mountEditor for the full reasoning). html routes to the
   // editor now, so this branch is a fallback; it uses the same safe path.
   else if (p.sub === 'html') wrap.innerHTML = `<iframe class="vw-pdf vw-html" sandbox="allow-scripts allow-same-origin" src="${esc(docUrl(p.filePath))}"></iframe>`;
@@ -4569,7 +4576,7 @@ function panelSnapshot() {
     if (p.kind === 'card') return { kind: 'card', item: p.item, ...own(p), ...size(p) };
     // A one-shot that has run comes back as a plain terminal, not as its
     // command. Restoring the command re-ran it: leave an install tile on the
-    // desk, quit, and Nami piped curl into bash again on the next launch, and
+    // desk, quit, and Bond piped curl into bash again on the next launch, and
     // the one after that. A session is worth restoring; an errand is not.
     if (p.oneShot && (p.commandDone || p.exited)) {
       return { kind: 'shell', title: p.title, titleSource: p.titleSource, code: p.code, chipKind: p.chipKind, cwd: p.cwd, ...size(p) };
@@ -4672,7 +4679,7 @@ function startPanel(opts) {
   // A session born with a generic name ("Claude session") takes its name from
   // the first real prompt the user submits, then from claude itself. Only a
   // flow says 'flow' outright (agentSession) — everything else lands on the
-  // weak sources, so a name nami merely guessed is never pushed into claude,
+  // weak sources, so a name Bond merely guessed is never pushed into claude,
   // and a snapshot saved before any of this existed stays upgradable.
   seedTitleSource(p);
   // Every claude panel owns a conversation id from birth (--session-id), so a
@@ -5192,7 +5199,7 @@ function renderAgentInstall(a) {
     const plan = onPc ? await api.installPlan({ agentId: a.id }) : null;
     if (plan && plan.prereq) { toast(plan.prereq.short); return; }
     closeOverlay();
-    // oneShot + watchDone: this tile exists to run one command Nami chose, and
+    // oneShot + watchDone: this tile exists to run one command Bond chose, and
     // the tile itself reports when that command lands. Before, the only signal
     // was the shell dying — which for an install is never — so the toast asked
     // the user to go and press ⌘N themselves.
@@ -5261,7 +5268,7 @@ async function finishAgentInstall(p, code) {
 
   if (!ok) {
     setTileNote(p, `<span class="tn-tx"><b>${esc(name)} is still not on ${W.thisMac}.</b>
-      ${code === 0 ? 'The command ran to the end but left nothing Nami can find — the output above should say why.'
+      ${code === 0 ? 'The command ran to the end but left nothing Bond can find — the output above should say why.'
         : `The install exited with <b>${esc(String(code))}</b>.`}</span>
       <span class="tn-bt"><button class="btn btn--small" id="tn-docs">Read the guide</button>
       <button class="btn btn--small" id="tn-retry">Try again</button></span>`, 'warn');
@@ -5362,7 +5369,7 @@ async function ensureDelivered(item, toolId) {
   const before = await api.agentDelivery({ projectPath: S.project.path, slug: item.slug, agentIds: [toolId] });
   const was = (before && before[0]) || null;
   // `here` is not a skip: the copy regenerates so a dialect fix (opencode's
-  // mode, say) reaches copies delivered before it. Marked files are Nami's to
+  // mode, say) reaches copies delivered before it. Marked files are Bond's to
   // rewrite; `theirs` and `none` stay untouched as ever.
   if (!was || was.state === 'theirs' || was.state === 'none' || was.state === 'via') return was;
   // Report what delivery actually did, not what it was asked to do. Saying
@@ -5406,7 +5413,7 @@ function deliveryNote(item, toolId, was) {
   if (!isMaster(item)) return `${item.slug} — ${tool}'s own agent, from ${shortHome(item.filePath)}.`;
   if (!was) return `${item.slug} on ${tool}.`;
   if (was.state === 'theirs') {
-    return `${item.slug} on ${tool} — your own ${baseNameOf(was.file)} is there and Nami left it alone, `
+    return `${item.slug} on ${tool} — your own ${baseNameOf(was.file)} is there and Bond left it alone, `
       + `so this runs your file, not agents/${item.slug}.md.`;
   }
   if (was.state === 'failed') {
@@ -5442,7 +5449,7 @@ async function reallyLaunchAgent(item, toolId) {
   // own idiom. Both are probe-backed — see agent-launch.mjs.
   const launch = agentLaunch(toolId, item.slug);
   // `"<Name> session"` rather than the slug, because isGenericTitle keys on
-  // that word: a name Nami merely assembled has to stay weak enough for the
+  // that word: a name Bond merely assembled has to stay weak enough for the
   // first prompt, and then Claude's own transcript name, to replace it. Calling
   // the tile `ui-polisher` froze every ⌘K session under a name nothing could
   // improve. Not agentSession(): that stamps titleSource 'flow', the rung that
@@ -5539,7 +5546,7 @@ function toolListHtml(item) {
   }).join('');
   return `<div class="tool-list">${rows}
     <div class="tool-foot">Copies are regenerated from <b>agents/${esc(item.slug)}.md</b>.
-      Files without Nami's marker are somebody's hand work and are never touched.</div></div>`;
+      Files without Bond's marker are somebody's hand work and are never touched.</div></div>`;
 }
 
 const PICKER_SECTIONS = ['Project agents', 'In this project'];
@@ -5963,7 +5970,7 @@ function voiceFootHtml() {
     <span class="set-result" id="set-result">${esc(o.test || 'say something and Bond will type it back')}</span>`;
 }
 function voiceFlag(p) {
-  // Ready on a key Nami never saved means the key arrived on the environment
+  // Ready on a key Bond never saved means the key arrived on the environment
   // this run was launched with. That is true right now and worth saying, but it
   // is not durable: user-path.js merges the login shell's PATH into a Dock
   // launch and nothing else, so from the Dock the variable is absent and this
@@ -6000,10 +6007,10 @@ function voiceRowBodyHtml(p) {
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">add it in Keys</span></div>
       ${p.keyHelpUrl ? `<div class="sv-help" data-url="${esc(p.keyHelpUrl)}">where do I find my key?</div>` : ''}</div>`;
   }
-  // Usable, but on a key Nami is not holding. The row says where it came from
+  // Usable, but on a key Bond is not holding. The row says where it came from
   // and what would make it survive the next launch.
   if (p.needsKey && p.ready && !p.keySaved) {
-    return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Nami was started in.
+    return `<div class="set-opt-body"><div class="setup-note">Working from ${esc(p.keyEnv)} in the environment Bond was started in.
         Open Bond from the ${W.dock} and it will not be there.
         <span class="sv-help go-keys" data-keyenv="${esc(p.keyEnv)}">Save it in Keys</span> to make it stick.</div></div>`;
   }
@@ -6128,7 +6135,7 @@ function wireLookPane(modal) {
 const REPO_URL = 'https://github.com/Krishna5567/BOND';
 // The doc pages the quick start points at. One page per row, so a reader lands
 // on the answer to the row they pressed rather than on a contents page they
-// then have to search. Kept next to REPO_URL so every outward link Nami has is
+// then have to search. Kept next to REPO_URL so every outward link Bond has is
 // read in one place.
 const DOCS = {
   home: 'https://github.com/Krishna5567/BOND#readme',
@@ -6183,7 +6190,7 @@ function keysPaneHtml() {
     if (o.editKey === s.name) rows.push(keyEditRowHtml(s.name, ''));
     else rows.push(keyRowHtml({ name: s.name, value: 'not set — ' + s.hint, sub: true, actions: ['add'] }));
   }
-  return `<p class="setup-copy">Saved keys are shared only with permitted agents. Terminals and installers receive no known API keys from Nami. Voice reads its provider keys from this same store.</p>
+  return `<p class="setup-copy">Saved keys are shared only with permitted agents. Terminals and installers receive no known API keys from Bond. Voice reads its provider keys from this same store.</p>
     ${rows.join('')}
     <div class="key-row key-row--new">
       <input class="text-input k-input k-name-input" id="key-new-name" placeholder="MY_SERVICE_KEY" spellcheck="false" />
@@ -6547,13 +6554,13 @@ function renderConnectCustom() {
     const w = chosenAgent(o);
     if (!o.text.trim() || !w) return;
     closeOverlay();
-    // The agent registers into the master; Nami fans it out when the session
+    // The agent registers into the master; Bond fans it out when the session
     // ends — the same rhythm as agent- and skill-building sessions.
     const onExit = S.project
       ? () => { refreshServices(); api.deliverServices({ projectPath: S.project.path, agentIds: installedAgentIds() }).then(() => refreshServices()); }
       : undefined;
     agentSession(w, { title: 'build: connector', code: 'BC', seed:
-      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`, onExit });
+      `Build an MCP connector for this: ${o.text.trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Bond copies it to every installed agent's own config from there. Then tell me what tools it exposes.`, onExit });
     toast('Your agent is on it. It appears under MCP in the Library when it lands.');
   };
 }
@@ -6569,7 +6576,7 @@ let overlayStill = false;
 // ---- quick start -----------------------------------------------------------
 //
 // The one place in the window that answers "what is this and what do I do now".
-// Nami had no such place: the Help menu is five outbound links, and the person
+// Bond had no such place: the Help menu is five outbound links, and the person
 // this is for does not look in the menu bar.
 //
 // A checklist, not a tour. Coach marks have to be maintained across four themes
@@ -6599,7 +6606,7 @@ function quickStartRows() {
   return [
     {
       n: 1, title: 'Pick one folder to work in',
-      sub: 'Nami only ever looks inside it. No folder yet? It will make you one.',
+      sub: 'Bond only ever looks inside it. No folder yet? It will make you one.',
       done: !!S.project,
       acts: S.project ? [] : [{ label: 'Make me a folder', go: true, run: () => { closeOverlay(); makeFolderDialog(); } }],
     },
@@ -6687,7 +6694,7 @@ function overlay(cls, inner, opts) {
 }
 
 // ---- folders ---------------------------------------------------------------
-// A file opened with Nami from Finder. Either it already lives on this desk —
+// A file opened with Bond from Finder. Either it already lives on this desk —
 // then it is just a tile — or the desk has to change folders first. That switch
 // is the one the user is allowed to refuse, so the file waits in S.pendingOpen
 // until the answer is known rather than being forced onto a foreign desk.
@@ -6835,7 +6842,7 @@ function toast(msg) { els.toastRoot.innerHTML = `<div class="toast"><span class=
 // ===========================================================================
 // A card in the corner, never a modal. Someone mid-sentence with an agent does
 // not want the app in front of them, and an update is the least urgent thing
-// Nami has to say — so it waits, and "Not now" means not this version, ever.
+// Bond has to say — so it waits, and "Not now" means not this version, ever.
 
 const SKIPPED_UPDATE = 'bond-skipped-update';
 
@@ -6888,7 +6895,7 @@ function paintUpdate(state, ev) {
     // There is a button now, and there did not used to be. Waiting for a quit
     // was the whole design — an update should never end a session somebody is
     // in the middle of — but on a real machine it lost every time: the app
-    // takes its time closing, Squirrel waits for it, and reopening Nami inside
+    // takes its time closing, Squirrel waits for it, and reopening Bond inside
     // that window cancels the install with nothing said. So the wait stays as
     // the quiet default and this is the way to make it happen on purpose.
     els.updateRoot.innerHTML = `<div class="update-note">
@@ -6910,7 +6917,7 @@ function paintUpdate(state, ev) {
     return;
   }
 
-  // The one warning this feature owes anybody. Installing restarts Nami, and
+  // The one warning this feature owes anybody. Installing restarts Bond, and
   // restarting ends every session — so when there is work in flight, say what
   // will be lost and make them say yes to it.
   if (state === 'confirm') {
@@ -6952,9 +6959,9 @@ function paintUpdate(state, ev) {
 }
 
 // ===========================================================================
-//  The one time Nami asks for anything
+//  The one time Bond asks for anything
 // ===========================================================================
-// Nami is free, and the only thing that helps anyone find it is a star. But the
+// Bond is free, and the only thing that helps anyone find it is a star. But the
 // app has no account, no telemetry and no way to reach the person using it —
 // which is the point — so the ask has to happen here, and it gets exactly one
 // chance. Once. Dismissed is forever, same as a skipped update.
@@ -6962,14 +6969,14 @@ function paintUpdate(state, ev) {
 // Counted in launches rather than sessions on purpose. Five sessions can all
 // happen in one sitting on the first afternoon, when nobody owes you anything
 // yet; five separate launches means somebody came back, which is the only
-// evidence available that Nami earned its place. Nothing is sent anywhere to
+// evidence available that Bond earned its place. Nothing is sent anywhere to
 // learn this — it is a number in localStorage on one machine.
 
 const STAR_ASKED = 'bond-star-asked';
 const LAUNCH_TALLY = 'bond-launches';
 const ASK_AFTER_LAUNCHES = 5;
 // Long enough that the bar is never part of the app opening. Someone who just
-// launched Nami is going somewhere; this waits until they have arrived.
+// launched Bond is going somewhere; this waits until they have arrived.
 const ASK_AFTER_MS = 90_000;
 
 function tallyLaunch() {
@@ -6997,7 +7004,7 @@ function paintStarAsk() {
   // An update is always the more important thing in this slot, and it must
   // never be displaced by a favour. If one is showing, the moment has passed.
   if (!els.updateRoot || offered || localStorage.getItem(STAR_ASKED)) return;
-  // Green, not amber: amber in Nami means *needs you*, and this does not.
+  // Green, not amber: amber in Bond means *needs you*, and this does not.
   els.updateRoot.innerHTML = `<div class="update-note">
     <span class="un-dot un-done"></span>
     <span class="un-msg un-ask">Enjoying Bond? A star helps other people find it.</span>

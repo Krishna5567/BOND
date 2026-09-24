@@ -35,7 +35,7 @@ test('every review flag gets a fresh disposable profile', () => {
   }
 });
 test('explicit profiles are respected and never deleted', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-profile-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bond-profile-test-'));
   try {
     for (const argv of [['--user-data', dir], ['--demo', '--user-data', dir]]) {
       const profile = createReviewProfile({ argv, normalPath: '/normal', packaged: false });
@@ -50,7 +50,7 @@ test('persistent review storage is outside protected folders and survives cleanu
   const args={argv:['--review'],normalPath:'/normal',packaged:true,homePath:'/Users/reviewer'};
   const first=createReviewProfile(args),second=createReviewProfile(args);
   assert.equal(first.review,true);
-  assert.equal(first.path,'/Users/reviewer/Library/Application Support/Nami Review');
+  assert.equal(first.path,'/Users/reviewer/Library/Application Support/Bond Review');
   assert.equal(second.path,first.path);
   first.cleanup();
 });

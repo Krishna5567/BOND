@@ -25,7 +25,7 @@ test('rejected IPC never reaches a privileged action or discloses its result', (
   const ipc = trustedIpc({ handle: (c, h) => handlers.set(c, h), on: (c, h) => handlers.set(c, h) }, e => e.trusted === true);
   ipc.handle('read', (_e, value) => { calls.push(value); return value; });
   ipc.on('write', (_e, value) => calls.push(value));
-  assert.throws(() => handlers.get('read')({}, 'private fixture'), /only available from Nami/);
+  assert.throws(() => handlers.get('read')({}, 'private fixture'), /only available from Bond/);
   handlers.get('write')({}, 'untrusted');
   assert.deepEqual(calls, []);
   assert.equal(handlers.get('read')({ trusted: true }, 'allowed fixture'), 'allowed fixture');
@@ -33,7 +33,7 @@ test('rejected IPC never reaches a privileged action or discloses its result', (
 });
 test('the app document is the same document however its path was percent-encoded', () => {
   // Node writes C:\Users\LONGNA~1\… as …/LONGNA%7E1/… and Chromium reports the
-  // same file with the tilde bare. Compared letter for letter, a Nami running
+  // same file with the tilde bare. Compared letter for letter, a Bond running
   // from a Windows short path refused every one of its own windows and never
   // booted — which is exactly where the portable build unpacks itself.
   const node = fileUrl('LONGNA~1', 'src', 'renderer', 'index.html');

@@ -15,11 +15,11 @@
 // The shell can just say. Appending a printf to the command makes it announce
 // its own exit code the moment it lands:
 //
-//   curl … | bash; printf '\033]1337;NamiRunDone=%s\007' "$?"
+//   curl … | bash; printf '\033]1337;BondRunDone=%s\007' "$?"
 //
 // OSC 1337 is a private-use operating system command. xterm.js parses and
 // discards handlers it does not know, so nothing appears in the tile — the same
-// channel Nami already reads claude's session titles from (osc-title.js), used
+// channel Bond already reads claude's session titles from (osc-title.js), used
 // the other way round.
 //
 // `;` and not `&&`, so a failed install still reports.
@@ -45,8 +45,8 @@
 
 const { isPowerShell } = require('./platform.js');
 
-const OPEN = ']1337;NamiRunDone=';
-const DONE_RE = /\]1337;NamiRunDone=(-?\d{1,5})(?:|\\)/;
+const OPEN = ']1337;BondRunDone=';
+const DONE_RE = /\u001b\]1337;(?:BondRunDone|NamiRunDone)=(-?\d{1,5})(?:\u0007|\u001b\\)/;
 
 // The suffix appended to a run command. Single-quoted so the shell expands
 // nothing in it; "$?" quoted so an empty status cannot swallow the argument.
@@ -56,14 +56,14 @@ const DONE_RE = /\]1337;NamiRunDone=(-?\d{1,5})(?:|\\)/;
 // says so — read into a variable first, because every statement resets it.
 function doneSuffix(command, shell = '') {
   if (isPowerShell(shell)) {
-    return `${command}; $namiOk = $?; $namiCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } elseif ($namiOk) { 0 } else { 1 }; `
-      + `[Console]::Write([char]27 + ']1337;NamiRunDone=' + $namiCode + [char]7)`;
+    return `${command}; $bondOk = $?; $bondCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } elseif ($bondOk) { 0 } else { 1 }; `
+      + `[Console]::Write([char]27 + ']1337;BondRunDone=' + $bondCode + [char]7)`;
   }
-  return `${command}; printf '\\033]1337;NamiRunDone=%s\\007' "$?"`;
+  return `${command}; printf '\\033]1337;BondRunDone=%s\\007' "$?"`;
 }
 
 // The suffix cannot be TYPED into an interactive shell, which is how a run tile
-// used to be driven: a pty echoes its input, so the user watched Nami's own
+// used to be driven: a pty echoes its input, so the user watched Bond's own
 // printf scroll past on the end of their install line. Measured in the real
 // app — sentinelVisible: true — and unacceptable in a tile people read.
 //

@@ -4,7 +4,7 @@ const os = require('os');
 const { pathToFileURL, fileURLToPath } = require('url');
 const { userBrowserUrl } = require('./browser-policy');
 
-// The renderer can ask for a local page to leave Nami's sandbox, so this gate
+// The renderer can ask for a local page to leave Bond's sandbox, so this gate
 // is intentionally narrower than "anything a browser might display". A real,
 // absolute HTML file is the product use-case; every other scheme, extension,
 // missing path and directory is refused before shell.openExternal sees it.
@@ -46,7 +46,7 @@ function resolveBrowserInput(value, { homePath = os.homedir(), platform = proces
     if (!/\.html?$/i.test(file) || !fs.statSync(file).isFile()) throw new Error('Choose an HTML file (.html or .htm).');
   } catch (error) {
     if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new Error('HTML file not found. Check the path and try again.');
-    if (['EACCES', 'EPERM'].includes(error.code)) throw new Error('Nami cannot read this HTML file. Check its file permissions.');
+    if (['EACCES', 'EPERM'].includes(error.code)) throw new Error('Bond cannot read this HTML file. Check its file permissions.');
     throw error;
   }
   return { filePath: file, url: pathToFileURL(file).href + suffix };

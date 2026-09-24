@@ -42,13 +42,15 @@ test('the payload is exactly the four fields', () => {
 });
 
 test('a dev run sends nothing', () => {
-  // Unpackaged = someone building Nami; their launches must not count as users.
+  // Unpackaged = someone building Bond; their launches must not count as users.
   assert.equal(pingPlan({ ...base(), isPackaged: false }), null);
 });
 
-test('NAMI_PING_URL lets a dev run ping anyway — at that url', () => {
-  const plan = pingPlan({ ...base(), isPackaged: false, env: { NAMI_PING_URL: 'http://localhost:8788/api/ping' } });
-  assert.equal(plan.url, 'http://localhost:8788/api/ping');
+test('BOND_PING_URL and NAMI_PING_URL let a dev run ping anyway — at that url', () => {
+  const planBond = pingPlan({ ...base(), isPackaged: false, env: { BOND_PING_URL: 'http://localhost:8788/api/ping' } });
+  assert.equal(planBond.url, 'http://localhost:8788/api/ping');
+  const planNami = pingPlan({ ...base(), isPackaged: false, env: { NAMI_PING_URL: 'http://localhost:8788/api/ping' } });
+  assert.equal(planNami.url, 'http://localhost:8788/api/ping');
 });
 
 // --- the send: fire-and-forget, never a throw --------------------------------

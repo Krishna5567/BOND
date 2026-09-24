@@ -102,25 +102,25 @@ if (SHOT_PATH) {
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
 }
 
-// `productName: Nami` resolves the same packaged and unpackaged, so a dev run and the
-// installed Nami.app would otherwise share one userData — the same state.json (recents,
+// `productName: Bond` resolves the same packaged and unpackaged, so a dev run and the
+// installed Bond.app would otherwise share one userData — the same state.json (recents,
 // open windows) and settings.json (theme, API keys, mode 0600). That makes the shipped
 // app impossible to daily-drive while developing, and makes a clean first launch
 // impossible to see at all without deleting your own config. Development gets its own
 // directory instead. Must run before anything reads userData, hence module scope.
 // --user-data <dir> gives a run its own profile — two dev sessions sharing
-// Nami-dev otherwise restore each other's desks into every screenshot. Review
+// Bond-dev otherwise restore each other's desks into every screenshot. Review
 // flags default to a disposable profile. An explicit --user-data must also be
-// disposable for review: it is used as supplied and is never deleted by Nami.
+// disposable for review: it is used as supplied and is never deleted by Bond.
 const { createReviewProfile } = require('./review-profile');
 const reviewProfile = createReviewProfile({
   argv: process.argv, normalPath: app.getPath('userData'), packaged: app.isPackaged,
-  reviewBuild: require('../../package.json').name === 'nami-review',
+  reviewBuild: require('../../package.json').name === 'bond-review' || require('../../package.json').name === 'nami-review',
 });
 app.setPath('userData', reviewProfile.path);
 const REVIEW = reviewProfile.review;
 
-// One Nami per profile, on Windows. There a file opened with Nami, and a second
+// One Bond per profile, on Windows. There a file opened with Bond, and a second
 // double-click on the icon, both start a whole new process with the path in
 // its argv. The lock turns that second process into a messenger: it hands over
 // what it was asked to open and leaves, and the running app opens it (see
@@ -129,7 +129,7 @@ const REVIEW = reviewProfile.review;
 // Must sit after setPath: the lock is keyed on userData, which is what lets a
 // dev run, the installed app and a review profile each keep their own.
 //
-// Windows only, on purpose. macOS already runs one Nami per bundle and delivers
+// Windows only, on purpose. macOS already runs one Bond per bundle and delivers
 // files as open-file events, so the lock would add nothing there and take two
 // things away: a second `npm start`, and a second run against a --review
 // profile, both of which share a userData and both of which work today. A
@@ -144,7 +144,7 @@ if (ONE_INSTANCE && !app.requestSingleInstanceLock(LAUNCH)) {
   app.exit(0);
 }
 
-// Nami's own working folder, on Windows, is the home folder from here on.
+// Bond's own working folder, on Windows, is the home folder from here on.
 //
 // Opened from a file in Explorer, the process starts life inside that file's
 // folder — a repo someone just cloned, a Downloads folder. Windows looks in the
@@ -156,7 +156,7 @@ if (ONE_INSTANCE && !app.requestSingleInstanceLock(LAUNCH)) {
 // go of the folder, which Windows will not rename or delete while a process
 // sits in it.
 //
-// It has to come after LAUNCH above: a relative argument (`nami .`) is read
+// It has to come after LAUNCH above: a relative argument (`bond .`) is read
 // against the folder the launch came from. A screenshot run is left where it
 // was, because it writes to a path given relative to there. A Mac is left
 // alone: launchd starts an app in /, and nothing there searches the cwd.
@@ -175,7 +175,7 @@ const windowThemes = new Map();
 const winFolders = new Map();     // webContents.id -> folder that window works in
 const sessionOwners = new Map();  // session id -> webContents.id, so closing a window reaps its sessions
 const termSessions = new Map();   // id -> pty
-// Sessions Nami is ending on purpose — quit, window close, tile close. pty.kill()
+// Sessions Bond is ending on purpose — quit, window close, tile close. pty.kill()
 // sends SIGHUP, which surfaces as exit 129, and without this the tile cannot tell
 // "you closed me" from "I died". Recorded before the kill, read in onExit.
 const deliberateKills = new Set();
@@ -311,7 +311,7 @@ function broadcastRecents() {
 // Both change while the app runs, and a menu is a snapshot of the moment it was
 // installed.
 //
-// Every Nami item sends a string to the window you are looking at. The focused
+// Every Bond item sends a string to the window you are looking at. The focused
 // window and not all of them: two windows are two project spaces, and ⌘N in one
 // must not open a launcher in the other. `win` is the fallback for the moment
 // between a window closing and the next taking focus.
@@ -379,7 +379,7 @@ function snapshotWindows() {
   }, 300);
 }
 
-// This window is Nami and nothing may replace it. Rendered content — a doc's
+// This window is Bond and nothing may replace it. Rendered content — a doc's
 // markdown, anything an agent writes — can carry a link, and a bare <a href>
 // would otherwise navigate the whole app away with no way back. Web links are
 // handed to the browser instead; everything else is simply refused.
@@ -429,9 +429,9 @@ function routeOpenFile(filePath) {
 
 // The Windows road to the same place. A path on the command line is a file, which
 // takes the route above exactly as one from Finder does, or a folder
-// (`Nami.exe C:\work`), which is the desk already open on it or a new window —
+// (`Bond.exe C:\work`), which is the desk already open on it or a new window —
 // never somebody else's desk switched underneath them. Returns whether anything
-// was opened, so a launch that asked for nothing can just bring Nami forward.
+// was opened, so a launch that asked for nothing can just bring Bond forward.
 function routeOpenFolder(folder) {
   const live = [...wins].filter((w) => !w.isDestroyed());
   const focused = BrowserWindow.getFocusedWindow() || win;
@@ -442,7 +442,7 @@ function routeOpenFolder(folder) {
   });
   if (target.action === 'replace-empty') {
     // The new window first, in the old one's place, so there is never a moment
-    // with no windows — which off a Mac is the moment Nami quits.
+    // with no windows — which off a Mac is the moment Bond quits.
     const old = live.find((x) => x.webContents.id === target.id);
     createWindow(folder, old ? old.getNormalBounds() : undefined);
     if (old && !old.isDestroyed()) old.close();
@@ -460,7 +460,7 @@ function routeLaunch(asked) {
   return asked.folders.length + files.length > 0;
 }
 
-// A second Nami was started and has already left; this is what it was asked to
+// A second Bond was started and has already left; this is what it was asked to
 // open. `handed` is its own reading of its own command line (see ONE_INSTANCE
 // above) and is checked again here, since it crossed a process boundary. argv
 // is the fallback for a sender that handed nothing over.
@@ -471,7 +471,7 @@ app.on('second-instance', (_e, argv, cwd, handed) => {
   console.log('[launch] second instance:', asked.files.length, 'file(s),', asked.folders.length, 'folder(s)');
   if (!app.isReady()) { LAUNCH.files.push(...asked.files); LAUNCH.folders.push(...asked.folders); return; }
   if (routeLaunch(asked)) return;
-  // Nothing to open: the icon was clicked again. Show them the Nami they have.
+  // Nothing to open: the icon was clicked again. Show them the Bond they have.
   const w = (win && !win.isDestroyed()) ? win : [...wins].find((x) => !x.isDestroyed());
   if (!w) { createWindow(); return; }
   if (w.isMinimized()) w.restore();
@@ -492,7 +492,7 @@ function sendOpen(w, filePath, folder, adopt) {
 function createWindow(folder, bounds) {
   const w = new BrowserWindow({
     // The floor is what the layout survives, not what looks best: below 560 the
-    // tile head runs out of room even with its controls dropped. Nami is often a
+    // tile head runs out of room even with its controls dropped. Bond is often a
     // side pane next to an editor, so the old 1040 floor — wider than half a
     // laptop screen — made that impossible. See the narrow-window media queries
     // at the foot of paper.css.
@@ -609,7 +609,7 @@ app.whenReady().then(() => {
   // desk the developer happened to leave open.
   const restore = (!SHOT_PATH && !DEMO && state.windows.length) ? state.windows.slice(0, 8) : null;
   if (restore) for (const w of restore) createWindow(w.folder || null, w.bounds);
-  // `Nami.exe C:\work` with nothing to restore: that folder is the window, so
+  // `Bond.exe C:\work` with nothing to restore: that folder is the window, so
   // the usual one on the last-used folder would only be a second, unasked-for.
   else if (!LAUNCH.folders.length) createWindow();
   if (process.argv.includes('--second-window')) createWindow(null); // dev: multi-window smoke test
@@ -649,7 +649,7 @@ app.on('before-quit', () => {
 // living another 30 to 140 seconds — native threads (the Whisper engine, pty
 // plumbing) keep a dead Electron alive long after the event loop is done. To
 // the user that is invisible; to Squirrel it is fatal: install-on-quit waits
-// for the process to actually go, and anyone reopening Nami inside that window
+// for the process to actually go, and anyone reopening Bond inside that window
 // got "App Still Running Error" and no update, with nothing said.
 //
 // By the time 'quit' fires, everything that matters has already happened —
@@ -685,7 +685,7 @@ ipcMain.handle('usage:read', async (e) => {
   if (!w || e.sender !== w.webContents) return { accounts: [] };
   if (usagePending) return usagePending;
   usagePending = (async () => {
-    // Reuse Nami's detected binaries. A usage refresh must not launch a fresh
+    // Reuse Bond's detected binaries. A usage refresh must not launch a fresh
     // interactive login shell for every provider (rc scripts can hang).
     let timer;
     const envPath = await Promise.race([userPath({ settings: readSettings() }), new Promise((resolve) => { timer = setTimeout(() => resolve(process.env.PATH || ''), 2000); })]);
@@ -778,7 +778,7 @@ ipcMain.handle('window:new', (_e, args) => {
   return { ok: true };
 });
 
-// The Nami mark, clicked on Windows: the few menu items with nowhere else to
+// The Bond mark, clicked on Windows: the few menu items with nowhere else to
 // live (app-menu.js says which, and why). The renderer sends where the mark is
 // in its own pixels; a zoomed page has bigger pixels than the window does.
 ipcMain.handle('menu:extras', (e, at) => {
@@ -805,7 +805,7 @@ ipcMain.handle('app:version', () => app.getVersion());
 // of writing, but a button somebody pressed should always answer.
 function appUpdatedAt() {
   try {
-    // .../Nami.app/Contents/MacOS/Nami → .../Nami.app
+    // .../Bond.app/Contents/MacOS/Bond → .../Bond.app
     const bundle = app.isPackaged
       ? path.resolve(app.getPath('exe'), '..', '..', '..')
       : app.getAppPath();
@@ -820,7 +820,7 @@ ipcMain.handle('update:status', async () => {
   // waved away can be found again.
   if (st.state === 'update') lastOffered = { version: st.version, url: st.url };
   // `version` is always the one running and `latest` the one on offer. They were
-  // one field to begin with, and the pane duly announced "Nami 0.1.3, updated
+  // one field to begin with, and the pane duly announced "Bond 0.1.3, updated
   // tonight" about a copy the user did not have.
   return {
     state: st.state,
@@ -843,7 +843,7 @@ ipcMain.handle('update:open', (_e, url) => {
 });
 
 // Download the update the user just accepted, and tell every window how it is
-// going. All the windows share one copy of Nami on disk, so they share one
+// going. All the windows share one copy of Bond on disk, so they share one
 // download and see the same progress — a second window opened halfway through
 // asks for the current state at boot rather than starting its own.
 ipcMain.handle('update:download', () => downloadUpdate({
@@ -940,7 +940,7 @@ function deliveredNames(results) {
 }
 // What an install will take here, asked before it runs: the line for this
 // shell, and anything it needs that a PC does not come with (install-plan.js).
-// Programs are looked for on the PATH a tile is given, not on Nami's own.
+// Programs are looked for on the PATH a tile is given, not on Bond's own.
 const { installPlan } = require('./install-plan');
 ipcMain.handle('install:plan', (_e, { connectorId, agentId } = {}) => installPlan({
   connectorId, agentId, home: os.homedir(), shell: paneShell(process.platform, process.env),
@@ -1542,7 +1542,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   const real = (found) => realProgram(found, { platform: process.platform, pathValue: envPath || undefined });
   const claudeRun = real(claudeExe);
   // Where the agent the message is for really is. On Windows that decides
-  // whether it may travel as an argument at all: a shim Nami could not go round
+  // whether it may travel as an argument at all: a shim Bond could not go round
   // is read by cmd.exe, and a message is not something cmd.exe may read
   // (cmd-shim.js). On a Mac the answer is always yes and nothing changes.
   const seedProgram = kind === 'claude' ? claudeRun.file : real(knownBin(seedAgent)).file;
@@ -1593,7 +1593,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
   } else if (kind === 'harness' && program) {
     file = program; spawnArgs = Array.isArray(args) ? args : [];
   } else if (kind === 'run' && command) {
-    // watchDone marks a one-shot: a command Nami ran on the user's behalf and
+    // watchDone marks a one-shot: a command Bond ran on the user's behalf and
     // needs to know the end of, rather than a session that happens to be a
     // shell. It is spawned rather than typed, so the reporting suffix is never
     // echoed back at the user; the header below stands in for the echo.
@@ -1625,7 +1625,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // keeps its absolute path here too; the sid is charset-checked inside
     // resumeCommand, so the tail needs no quoting.
     // A tile with no saved id spawns fresh and is registered for discovery
-    // after the spawn below. One-shots (watchDone) are Nami's errands, never
+    // after the spawn below. One-shots (watchDone) are Bond's errands, never
     // conversations — neither path applies.
     const agent = watchDone ? null : agentForCommand(command);
     if (agent) {
@@ -1710,7 +1710,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     // when a relative path printed after a `cd` misses against the tile's own.
     if (where) { const at = feedCwd(where, data); if (at) ptyCwd.tell(p.pid, at); }
     // A one-shot command announcing its own exit code. Same channel as the
-    // title below, opposite direction: the shell talking to Nami.
+    // title below, opposite direction: the shell talking to Bond.
     if (watchDone && !reported) {
       const code = feedRunDone(done, data);
       if (code !== null) {
@@ -1732,7 +1732,7 @@ ipcMain.handle('term:create', async (e, { id, cwd, cols, rows, kind, command, pr
     if (where) ptyCwd.forget(p.pid); // Windows hands the pid to the next process
     termSessions.delete(id); sessionOwners.delete(id); titleWatch.delete(id);
     // The note is built here rather than in the renderer because only main knows
-    // whether this teardown was Nami's own doing.
+    // whether this teardown was Bond's own doing.
     const deliberate = deliberateKills.delete(id);
     sendWc(wc, 'term:exit', { id, code: exitCode, signal, deliberate, note: exitNote({ code: exitCode, signal, deliberate }) });
   });

@@ -1,6 +1,6 @@
 // What an install will take on this machine, asked before it runs.
 //
-// One answer for the two installs Nami starts on the user's behalf — a
+// One answer for the two installs Bond starts on the user's behalf — a
 // connector built from its repo, and an agent's own install command: the line
 // to run in this shell (shell-chain.js), where it lands and whether it is built
 // already, and anything it needs that is not here yet (prereqs.js).
@@ -38,7 +38,7 @@ async function installPlan({ connectorId, agentId, platform = process.platform, 
     return missingPrereqs({ needs, found, platform });
   };
   let prereq = needs.length ? await look() : null;
-  // Missing on the PATH Nami remembered is not the same as missing: the usual
+  // Missing on the PATH Bond remembered is not the same as missing: the usual
   // reason to be asked twice is that the user just ran the winget line. So
   // before saying it again, the PATH is read again.
   if (prereq && refresh) { refresh(); prereq = await look(); }

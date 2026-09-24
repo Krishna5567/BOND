@@ -3,7 +3,7 @@
 // Launched from a terminal, Electron inherits the shell's PATH and everything
 // works. Launched from the Dock — which is how every user launches it —
 // launchd hands the app `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else. No
-// homebrew, no nvm, no bun, no ~/.local/bin. Every agent Nami then spawns
+// homebrew, no nvm, no bun, no ~/.local/bin. Every agent Bond then spawns
 // inherits that stump, so tools the user definitely has installed are missing
 // inside their own session, with no error that points at the cause.
 //
@@ -66,11 +66,11 @@ function userPath({ exec = probe, env = process.env, settings = {}, platform = p
 }
 
 // One probe per app run is right for a PATH that does not move — and wrong for
-// the one moment it does. An installer run inside Nami writes a PATH line into
+// the one moment it does. An installer run inside Bond writes a PATH line into
 // .zshrc, and every tile opened afterwards was still being handed the PATH from
 // before the install. Detection did not care (it spawns a fresh login shell
 // each time) but the adapters did: they spawn against this PATH, so an agent
-// Nami had just installed was unspawnable until the app was restarted.
+// Bond had just installed was unspawnable until the app was restarted.
 //
 // So the memo is dropped when something changes it. The next userPath() asks
 // the shell again; nothing else has to know.

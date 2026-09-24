@@ -1,4 +1,4 @@
-// What a Nami user can connect. Registry only: no IO here. Package names, env
+// What a Bond user can connect. Registry only: no IO here. Package names, env
 // vars, and key pages verified against their READMEs and the npm registry
 // 2026-08-08 (re-verify on change).
 //
@@ -36,8 +36,8 @@ const KNOWN_SERVICES = [
     id: 'kie', name: 'Creative models', desc: 'make images, video, music', code: 'CM', kind: 'install',
     keys: [{ id: 'token', label: 'your KIE key', placeholder: 'kie_...' }],
     keyHelpUrl: 'https://kie.ai',
-    docs: 'https://github.com/mrdainami/kie-mcp',
-    repo: 'https://github.com/mrdainami/kie-mcp',
+    docs: 'https://github.com/bond-ai/kie-mcp',
+    repo: 'https://github.com/bond-ai/kie-mcp',
     // The one entry that names a file on this machine, so the one entry that has
     // to be told which machine: a PC's config gets a PC's path, all backslashes.
     entry: (v, platform = process.platform) => ({ command: 'node', args: [platform === 'win32' ? path.win32.join(String(v.installDir), 'dist', 'index.js') : v.installDir + '/dist/index.js'], env: { KIE_API_KEY: v.token } }),
@@ -69,9 +69,9 @@ for (const s of KNOWN_SERVICES) {
 }
 function serviceById(id) { return KNOWN_SERVICES.find((s) => s.id === id) || null; }
 
-// Guided services (Gmail, Drive) finish by writing the master. Nami delivers
+// Guided services (Gmail, Drive) finish by writing the master. Bond delivers
 // from there; the agent must not write each notebook itself, and must never
-// write nami-browser into connections.json.
-const GUIDED_FINISH = 'When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent\'s own config from there.';
+// write bond-browser into connections.json.
+const GUIDED_FINISH = 'When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Bond copies it to every installed agent\'s own config from there.';
 
 module.exports = { KNOWN_SERVICES, serviceById, GUIDED_FINISH };

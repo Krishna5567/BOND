@@ -1,12 +1,12 @@
 // What "Import from Chrome" can honestly copy on this platform.
 //
 // On a Mac the browser's storage key sits in the Keychain, and the person can
-// let Nami read it; cookies, saved passwords and history all come across.
+// let Bond read it; cookies, saved passwords and history all come across.
 //
 // On Windows that key is tied to the browser itself. Since Chrome 127 cookies
 // are "app-bound" (the v20 blobs the worker already refuses): they decrypt only
 // inside the browser's own signed program, by design, and the only ways round
-// that are the ones malware uses. So Nami does not offer it. An import that
+// that are the ones malware uses. So Bond does not offer it. An import that
 // could only ever copy nothing, and then blame a Keychain that Windows does not
 // have, is worse than saying so up front.
 //
@@ -17,7 +17,7 @@
 // worker asks again on its own thread, in case anything ever reaches it another
 // way.
 const CATEGORIES = ['cookies', 'passwords', 'history'];
-const WINDOWS_REFUSAL = 'Windows browsers lock their saved sign-ins to the browser itself, so Nami cannot copy them. Sign in inside the browser tile instead.';
+const WINDOWS_REFUSAL = 'Windows browsers lock their saved sign-ins to the browser itself, so Bond cannot copy them. Sign in inside the browser tile instead.';
 
 function importCapability(platform = process.platform) {
   if (platform === 'win32') return { available: false, reason: 'windows-app-bound', categories: ['history'] };

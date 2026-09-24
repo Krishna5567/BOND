@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const { chainLine, connectorInstall } = require('../src/main/shell-chain.js');
 
 const PS = 'powershell.exe';
-const KIE = 'https://github.com/mrdainami/kie-mcp';
+const KIE = 'https://github.com/bond-ai/kie-mcp';
 
 test('a POSIX shell chains with &&, as it always has', () => {
   assert.equal(chainLine(['a', 'b', 'c'], '/bin/zsh'), 'a && b && c');
@@ -34,32 +34,32 @@ test('empty steps are dropped rather than chained', () => {
 
 test('on a Mac the connector install is the line it has always been, byte for byte', () => {
   const plan = connectorInstall({ repo: KIE, home: '/Users/cal', platform: 'darwin', shell: '/bin/zsh' });
-  assert.equal(plan.dir, '~/.nami/connectors/kie-mcp');
-  assert.equal(plan.entry, '~/.nami/connectors/kie-mcp/dist/index.js');
+  assert.equal(plan.dir, '~/.bond/connectors/kie-mcp');
+  assert.equal(plan.entry, '~/.bond/connectors/kie-mcp/dist/index.js');
   assert.equal(plan.command,
-    'git clone https://github.com/mrdainami/kie-mcp ~/.nami/connectors/kie-mcp && cd ~/.nami/connectors/kie-mcp && npm install && npm run build');
+    'git clone https://github.com/bond-ai/kie-mcp ~/.bond/connectors/kie-mcp && cd ~/.bond/connectors/kie-mcp && npm install && npm run build');
 });
 
 test('on a PC the folder is real, quoted for PowerShell, and npm is the .cmd PowerShell is allowed to run', () => {
   const plan = connectorInstall({ repo: KIE, home: 'C:\\Users\\cal', platform: 'win32', shell: PS });
-  assert.equal(plan.dir, 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp');
-  assert.equal(plan.entry, 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp\\dist\\index.js');
+  assert.equal(plan.dir, 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp');
+  assert.equal(plan.entry, 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp\\dist\\index.js');
   assert.equal(plan.command,
-    "git clone https://github.com/mrdainami/kie-mcp 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp'; "
-    + "if ($?) { Set-Location -LiteralPath 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp'; "
+    "git clone https://github.com/bond-ai/kie-mcp 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp'; "
+    + "if ($?) { Set-Location -LiteralPath 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp'; "
     + 'if ($?) { npm.cmd install; if ($?) { npm.cmd run build } } }');
   assert.doesNotMatch(plan.command, /&&|~/);
 });
 
 test('a Windows home with a space or an apostrophe stays one argument', () => {
   const plan = connectorInstall({ repo: KIE, home: "C:\\Users\\Cal O'Hia", platform: 'win32', shell: PS });
-  assert.ok(plan.command.includes("'C:\\Users\\Cal O''Hia\\.nami\\connectors\\kie-mcp'"));
+  assert.ok(plan.command.includes("'C:\\Users\\Cal O''Hia\\.bond\\connectors\\kie-mcp'"));
 });
 
 test('the platform decides, not the shape of the home folder', () => {
   // A Mac told about a Windows-looking home still builds the Mac line.
   const plan = connectorInstall({ repo: KIE, home: 'C:\\Users\\cal', platform: 'darwin', shell: '/bin/zsh' });
-  assert.equal(plan.dir, '~/.nami/connectors/kie-mcp');
+  assert.equal(plan.dir, '~/.bond/connectors/kie-mcp');
 });
 
 test('a repo whose last segment is not a plain name is refused, never quoted into a line', () => {

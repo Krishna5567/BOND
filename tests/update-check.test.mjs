@@ -59,10 +59,10 @@ const release = (over = {}) => ({
   tag_name: 'v0.2.0',
   draft: false,
   prerelease: false,
-  html_url: 'https://github.com/mrdainami/nami/releases/tag/v0.2.0',
+  html_url: 'https://github.com/Krishna5567/BOND/releases/tag/v0.2.0',
   assets: [
-    { name: 'Nami-0.2.0-arm64.dmg', browser_download_url: 'https://example.test/arm64.dmg' },
-    { name: 'Nami-0.2.0.dmg', browser_download_url: 'https://example.test/x64.dmg' },
+    { name: 'Bond-0.2.0-arm64.dmg', browser_download_url: 'https://example.test/arm64.dmg' },
+    { name: 'Bond-0.2.0.dmg', browser_download_url: 'https://example.test/x64.dmg' },
   ],
   ...over,
 });
@@ -78,7 +78,7 @@ test('offers the dmg built for this machine', () => {
 
 test('falls back to the release page when no dmg matches', () => {
   const r = releaseFromApi(release({ assets: [] }), 'arm64', MAC);
-  assert.equal(r.url, 'https://github.com/mrdainami/nami/releases/tag/v0.2.0');
+  assert.equal(r.url, 'https://github.com/Krishna5567/BOND/releases/tag/v0.2.0');
 });
 
 test('a draft is not a release', () => {

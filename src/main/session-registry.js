@@ -1,6 +1,6 @@
 // Which conversation is a running claude ACTUALLY in?
 //
-// Nami pins a conversation id at spawn (`claude --session-id <uuid>`) and builds
+// Bond pins a conversation id at spawn (`claude --session-id <uuid>`) and builds
 // the transcript path from it. That holds right up until the user types /resume
 // inside the tile and picks an older conversation: claude switches to that
 // conversation's id and never writes a line to the pinned one. Measured on a
@@ -17,7 +17,7 @@
 // the restored tile comes back as an empty conversation.
 //
 // Claude publishes the truth in ~/.claude/sessions/<pid>.json, written within
-// seconds of spawn and kept current. Nami owns the pty, so it knows the pid.
+// seconds of spawn and kept current. Bond owns the pty, so it knows the pid.
 // IO is injected so this stays testable without a live claude.
 const fs = require('fs');
 const os = require('os');
@@ -44,8 +44,8 @@ function readLiveSession(pid, io = fsIo) {
   if (!doc || typeof doc !== 'object') return null;
   const sessionId = typeof doc.sessionId === 'string' ? doc.sessionId : '';
   if (!sessionId) return null;
-  // `name` is a folder-derived slug ("dainami-cli-ff") unless something actually
-  // chose it, and that slug is worse than any label nami already has.
+  // `name` is a folder-derived slug ("bond-desktop-ff") unless something actually
+  // chose it, and that slug is worse than any label Bond already has.
   const chosen = doc.nameSource && doc.nameSource !== 'derived' && doc.name;
   return {
     sessionId,

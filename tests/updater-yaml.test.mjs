@@ -10,21 +10,21 @@ const parse = text => parseUpdateInfo(text, 'latest-mac.yml', source);
 
 test('the installed updater reads both Mac artifacts and their integrity metadata', () => {
   const digest = Buffer.alloc(64, 7).toString('base64');
-  const info = parse(`version: 0.5.2\nfiles:\n  - url: Nami-arm64.zip\n    sha512: ${digest}\n    size: 1234\n  - url: Nami-x64.zip\n    sha512: ${digest}\n    size: 5678\npath: Nami-arm64.zip\nsha512: ${digest}\n`);
+  const info = parse(`version: 0.5.2\nfiles:\n  - url: Bond-arm64.zip\n    sha512: ${digest}\n    size: 1234\n  - url: Bond-x64.zip\n    sha512: ${digest}\n    size: 5678\npath: Bond-arm64.zip\nsha512: ${digest}\n`);
   assert.equal(info.version, '0.5.2');
   assert.equal(info.sha512, digest);
   assert.deepEqual(getFileList(info).map(f => [f.url, f.size, f.sha512]), [
-    ['Nami-arm64.zip', 1234, digest], ['Nami-x64.zip', 5678, digest],
+    ['Bond-arm64.zip', 1234, digest], ['Bond-x64.zip', 5678, digest],
   ]);
   assert.deepEqual(resolveFiles(info, source).map(f => f.url.href), [
-    'https://updates.example.test/Nami-arm64.zip', 'https://updates.example.test/Nami-x64.zip',
+    'https://updates.example.test/Bond-arm64.zip', 'https://updates.example.test/Bond-x64.zip',
   ]);
 });
 
 test('the installed updater rejects malformed YAML and artifacts without checksums', () => {
   assert.throws(() => parse('files: [unterminated'), { code: 'ERR_UPDATER_INVALID_UPDATE_INFO' });
   assert.throws(() => parse(null), { code: 'ERR_UPDATER_INVALID_UPDATE_INFO' });
-  assert.throws(() => resolveFiles(parse('version: 0.5.2\nfiles:\n  - url: Nami-arm64.zip\n'), source), { code: 'ERR_UPDATER_NO_CHECKSUM' });
+  assert.throws(() => resolveFiles(parse('version: 0.5.2\nfiles:\n  - url: Bond-arm64.zip\n'), source), { code: 'ERR_UPDATER_NO_CHECKSUM' });
 });
 
 test('the updater rejects repeated empty YAML merges within its work budget', () => {

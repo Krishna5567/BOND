@@ -15,10 +15,10 @@ test('a Mac gets the line it always ran, is never asked about prerequisites, and
   const asked = [];
   let looked;
   const out = await installPlan({ ...MAC, connectorId: 'kie', findBin: async (b) => { asked.push(b); return ''; }, exists: (p) => { looked = p; return true; } });
-  assert.equal(out.command, 'git clone https://github.com/mrdainami/kie-mcp ~/.nami/connectors/kie-mcp && cd ~/.nami/connectors/kie-mcp && npm install && npm run build');
-  assert.equal(out.dir, '~/.nami/connectors/kie-mcp');
+  assert.equal(out.command, 'git clone https://github.com/bond-ai/kie-mcp ~/.bond/connectors/kie-mcp && cd ~/.bond/connectors/kie-mcp && npm install && npm run build');
+  assert.equal(out.dir, '~/.bond/connectors/kie-mcp');
   assert.equal(out.built, true);
-  assert.equal(looked, '/Users/cal/.nami/connectors/kie-mcp/dist/index.js');
+  assert.equal(looked, '/Users/cal/.bond/connectors/kie-mcp/dist/index.js');
   assert.equal(out.prereq, null);
   assert.deepEqual(asked, []);
 });
@@ -28,8 +28,8 @@ test('a PC with everything gets a PowerShell line against a real folder', async 
   const out = await installPlan({ ...WIN, connectorId: 'kie', findBin: everything, exists: (p) => { looked = p; return false; } });
   assert.equal(out.ok, true);
   assert.equal(out.prereq, null);
-  assert.equal(out.dir, 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp');
-  assert.equal(looked, 'C:\\Users\\cal\\.nami\\connectors\\kie-mcp\\dist\\index.js');
+  assert.equal(out.dir, 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp');
+  assert.equal(looked, 'C:\\Users\\cal\\.bond\\connectors\\kie-mcp\\dist\\index.js');
   assert.equal(out.built, false);
   assert.doesNotMatch(out.command, /&&|~/);
   assert.match(out.command, /^git clone /);

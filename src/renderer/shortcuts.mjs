@@ -1,7 +1,7 @@
 // One offline reference, shared by Settings and Quick Start.
 //
 // The rows are written once, in the Mac's keys, and platform-words.mjs turns
-// them into the keys of the machine the sheet is drawn on. Nami's own chords
+// them into the keys of the machine the sheet is drawn on. Bond's own chords
 // are asked for by name, because on Windows they are not a translation: ⌘N is
 // Ctrl+Shift+T there, the form that still works with a terminal pane focused.
 import { currentPlatform } from './paths.mjs';
@@ -36,7 +36,7 @@ export function shortcutGroups(platform = currentPlatform()) {
       icon: 'link', title: 'Links & files',
       rows: [
         ['Open a web link', k(['⌘', 'click']), 'In session output · opens your browser'],
-        ['Open a file in Nami', k(['⌘', 'click']), 'In session output · opens the file here'],
+        ['Open a file in Bond', k(['⌘', 'click']), 'In session output · opens the file here'],
         ['Reveal a file in ' + w.finder, k(['⌥', '⌘', 'click'])],
         ['Reveal a folder in ' + w.finder, k(['⌘', 'click'])],
         ['Open link actions', ['Right-click'], 'Open, copy, or reveal — depending on the link'],

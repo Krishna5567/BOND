@@ -1,6 +1,6 @@
 // "Is what this install needs on the machine?"
 //
-// A Mac comes with git, and the people Nami was built for already had Node. A
+// A Mac comes with git, and the people Bond was built for already had Node. A
 // PC comes with neither. Without this, the first thing a new Windows user sees
 // from "Install it for me" is PowerShell saying the term 'npm' is not
 // recognized as the name of a cmdlet — true, and no help at all. So the

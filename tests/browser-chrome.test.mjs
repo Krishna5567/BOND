@@ -107,7 +107,7 @@ test('Settings → Browser is compact controls for download, popups, camera/mic 
   assert.match(html, /id="browser-blank-light"/);
   assert.match(html, /id="browser-blank-dark"/);
   assert.match(html, /id="browser-blank-system"/);
-  assert.match(html, /System follows Nami/);
+  assert.match(html, /System follows Bond/);
   assert.match(html, /id="browser-download-ask"/);
   assert.match(html, /id="browser-download-auto"/);
   assert.match(html, /id="browser-popups-block"/);

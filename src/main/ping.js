@@ -1,6 +1,5 @@
-// The silent ping: one anonymous "somebody launched Nami today" note per
-// launch, caught by dainami.ai and deduped server-side to one row per user
-// per day. Spec: dainami-cli specs/2026-08-13-nami-tracking.md.
+// The silent ping: one anonymous "somebody launched Bond today" note per
+// launch.
 //
 // The payload is the ENTIRE vocabulary, forever: a random UUID this file
 // minted for itself on first launch (kept in settings.json), the app version,
@@ -13,7 +12,7 @@
 // those ends as "not sent", never as anything a user has to read.
 //
 // Dev runs never ping (their launches are not users), except when
-// NAMI_PING_URL points somewhere on purpose — which is also how the endpoint
+// BOND_PING_URL points somewhere on purpose — which is also how the endpoint
 // gets tested by hand against wrangler dev or production.
 
 const PING_URL = 'https://krishna5567.github.io/bond-website/api/ping';
@@ -22,7 +21,8 @@ const PING_URL = 'https://krishna5567.github.io/bond-website/api/ping';
 //   { url, payload: { id, version, arch, first }, mintedId } — or null for
 // "this launch does not ping" (a dev run without an override).
 function pingPlan({ settings = {}, isPackaged, env = {}, version, arch, randomUUID } = {}) {
-  const override = typeof env.NAMI_PING_URL === 'string' && env.NAMI_PING_URL.trim();
+  const override = (typeof env.BOND_PING_URL === 'string' && env.BOND_PING_URL.trim())
+    || (typeof env.NAMI_PING_URL === 'string' && env.NAMI_PING_URL.trim());
   if (!isPackaged && !override) return null;
   const stored = typeof settings.pingId === 'string' && settings.pingId.trim();
   const mint = randomUUID || (() => require('crypto').randomUUID());

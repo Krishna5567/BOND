@@ -79,7 +79,7 @@ test('opencode copy speaks its dialect: description + mode, no name key', () => 
 
 test('codex copy is TOML with the prompt as developer_instructions', () => {
   const text = renderCopy('codex', 'release-scribe', parseAgentMd(MASTER_MD));
-  assert.match(text, /^# made by Nami from agents\/release-scribe\.md/);
+  assert.match(text, /^# made by Bond from agents\/release-scribe\.md/);
   assert.match(text, /name = "release-scribe"/);
   assert.match(text, /description = "Turns git history into release notes\."/);
   assert.match(text, /developer_instructions = """\nYou are the release scribe/);
@@ -185,7 +185,7 @@ test('antigravity delivers to the user-scope gemini folder, the only one agy rea
 });
 
 // ---- the tool: hint ---------------------------------------------------------
-// Which tool a master prefers is Nami's own business. It rides in the superset
+// Which tool a master prefers is Bond's own business. It rides in the superset
 // frontmatter so it travels with the repo, and it must never reach a copy — no
 // tool has ever heard of the key, and an unknown key in a dialect file is a
 // change in somebody else's format.
@@ -320,7 +320,7 @@ test('a master reaches grok as project markdown', () => {
   io.write(P('/p/agents/scribe.md'), '---\nname: scribe\ndescription: writes notes\n---\n\nBody.\n');
   deliverAgents({ projectPath: '/p', agentIds: ['grok'], io });
   const copy = io.read(P('/p/.grok/agents/scribe.md'));
-  assert.match(copy, /made by Nami from agents\/scribe\.md/);
+  assert.match(copy, /made by Bond from agents\/scribe\.md/);
   assert.match(copy, /^---\n/);
   assert.match(copy, /description: writes notes/);
   assert.match(copy, /Body\./);

@@ -1,5 +1,5 @@
 // Resuming a run tile's conversation where claude got it for free. Claude
-// pins --session-id at spawn, so a restore is --resume of an id Nami already
+// pins --session-id at spawn, so a restore is --resume of an id Bond already
 // knows. The other agents — kimi, codex, opencode, hermes, agy, grok — run as
 // plain `run` tiles (their bare bin typed into a shell) and all take a resume
 // flag too (probed live 2026-08-20, grok 2026-08-21: each was given a codeword,
@@ -49,7 +49,7 @@ const AGENT_BINS = ['kimi', 'codex', 'opencode', 'hermes', 'agy', 'grok'];
 function statSafe(p) { try { return fs.statSync(p); } catch (_) { return null; } }
 function listDirSafe(p) { try { return fs.readdirSync(p); } catch (_) { return []; } }
 
-// A run tile Nami spawned as an agent carries exactly the bare bin; anything
+// A run tile Bond spawned as an agent carries exactly the bare bin; anything
 // with arguments (or anything else) is not ours to resume or discover.
 function agentForCommand(command) {
   const c = String(command || '').trim();

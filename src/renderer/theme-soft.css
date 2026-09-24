@@ -1,4 +1,4 @@
-/* Nami — the soft extrusion system: "soft" (light) + shared structure.
+/* Bond — the soft extrusion system: "soft" (light) + shared structure.
    Spec: 2026-08-26-soft-dusk-themes.md
 
    - body[data-theme="soft"]  → light token remap (this file)
@@ -69,9 +69,12 @@ body[data-theme="soft"] {
   --tree-fill: #e5e5e5;
   --tree-fill-open: #e5e5e5;
   --tree-fill-file: #e5e5e5;
-  --nami-fill: #00A86B;
-  --nami-foam: #e5e5e5;
-  --nami-eye: #e5e5e5;
+  --bond-fill: #00A86B;
+  --bond-foam: #e5e5e5;
+  --bond-eye: #e5e5e5;
+  --nami-fill: var(--bond-fill);
+  --nami-foam: var(--bond-foam);
+  --nami-eye: var(--bond-eye);
   --sf-d: rgba(44, 42, 51, 0.28);
   --sf-l: rgba(255, 255, 255, 0.52);
   --sf-in-d: rgba(13, 39, 80, 0.16);

@@ -29,7 +29,7 @@
 // wrapper's own statements would otherwise have answered for it.
 //
 // It arrives as a launch argument, never typed. A pty echoes what is typed into
-// it, and a tile that opens on a paragraph of Nami's own PowerShell is not
+// it, and a tile that opens on a paragraph of Bond's own PowerShell is not
 // acceptable (run-done.js learned the same thing about its suffix). -Command
 // rather than a script file, because a stock Windows refuses to run script
 // files at all (ExecutionPolicy Restricted) and says so in red.
@@ -58,17 +58,17 @@ const WIN = 'win32';
 // argument, and every double quote in it would be one more thing for two layers
 // of argument quoting to get right. Works in Windows PowerShell 5.1 and 7.
 const CWD_HOOK = [
-  '$global:__namiPrompt = $function:prompt',
+  '$global:__bondPrompt = $function:prompt',
   'function global:prompt { '
-    + '$namiOk = $global:?; '
-    + '$namiLoc = $executionContext.SessionState.Path.CurrentLocation; '
-    + "$namiFs = $namiLoc.Provider.Name -eq 'FileSystem'; "
-    + "if ($namiFs) { [Console]::Write([char]27 + ']9;9;' + $namiLoc.ProviderPath + [char]27 + '\\') }; "
-    + "if (-not $namiOk) { Write-Error 'nami' -ErrorAction Ignore }; "
-    + '$namiOut = & $global:__namiPrompt; '
-    + "$namiTail = ('>' * ($nestedPromptLevel + 1)) + ' '; "
-    + "if ($namiFs -and $namiOut -is [string] -and $namiLoc.Path -cne $namiLoc.ProviderPath -and $namiOut -ceq ('PS ' + $namiLoc.Path + $namiTail)) { 'PS ' + $namiLoc.ProviderPath + $namiTail } "
-    + 'elseif ($null -ne $namiOut) { $namiOut } '
+    + '$bondOk = $global:?; '
+    + '$bondLoc = $executionContext.SessionState.Path.CurrentLocation; '
+    + "$bondFs = $bondLoc.Provider.Name -eq 'FileSystem'; "
+    + "if ($bondFs) { [Console]::Write([char]27 + ']9;9;' + $bondLoc.ProviderPath + [char]27 + '\\') }; "
+    + "if (-not $bondOk) { Write-Error 'bond' -ErrorAction Ignore }; "
+    + '$bondOut = & $global:__bondPrompt; '
+    + "$bondTail = ('>' * ($nestedPromptLevel + 1)) + ' '; "
+    + "if ($bondFs -and $bondOut -is [string] -and $bondLoc.Path -cne $bondLoc.ProviderPath -and $bondOut -ceq ('PS ' + $bondLoc.Path + $bondTail)) { 'PS ' + $bondLoc.ProviderPath + $bondTail } "
+    + 'elseif ($null -ne $bondOut) { $bondOut } '
     + '}',
 ].join('; ');
 
@@ -110,7 +110,7 @@ const MAX_CARRY = 4096;
 // Windows Terminal's own documentation writes the path in double quotes, and
 // accepts it bare; take both. Only an absolute path is believed — this becomes
 // the base a relative token is resolved against, and a relative base would
-// quietly mean "relative to wherever Nami itself was started".
+// quietly mean "relative to wherever Bond itself was started".
 //
 // And not a folder on somebody else's server. The hook is not the only thing
 // that can write OSC 9;9: any program in the pane can, a `type` of a hostile

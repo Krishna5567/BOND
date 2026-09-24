@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 // Settings · Keys said "not set" for the same two keys. Both were telling the
 // truth about different things: sttConfig falls back to process.env, so a key
 // exported in a shell profile makes a provider genuinely usable, while Keys
-// only ever shows what Nami itself stores.
+// only ever shows what Bond itself stores.
 //
 // The catch is that only a run started FROM a terminal inherits that export.
 // user-path.js merges the login shell's PATH into a Dock launch and nothing
@@ -30,7 +30,7 @@ const cloud = (over = {}) => ({
   ready: false, keySaved: false, downloadBytes: 0, reason: null, ...over,
 });
 
-test('a key you saved in Nami reads as plainly ready', () => {
+test('a key you saved in Bond reads as plainly ready', () => {
   assert.equal(voiceFlag(cloud({ ready: true, keySaved: true })), 'ready');
 });
 
@@ -58,5 +58,5 @@ test('the on-device engine is never described as borrowing a key', () => {
 test('the status payload still reports saved and usable separately', () => {
   const stt = readFileSync(new URL('../src/main/stt.js', import.meta.url), 'utf8');
   assert.match(stt, /hasKey:/, 'whether a key is usable at all');
-  assert.match(stt, /keySaved:/, 'whether Nami is the one holding it');
+  assert.match(stt, /keySaved:/, 'whether Bond is the one holding it');
 });

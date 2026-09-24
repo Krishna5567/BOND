@@ -1,4 +1,4 @@
-// Everything Nami assumes about the operating system, in one place.
+// Everything Bond assumes about the operating system, in one place.
 //
 // These assumptions used to be scattered as literals: '/bin/zsh' in four call
 // sites, `command -v` inside a template string, three absolute paths where
@@ -6,7 +6,7 @@
 // each was invisible — nothing named them as platform decisions, so a port
 // meant finding them by failure rather than by reading.
 //
-// Nami ships macOS-only on purpose (see the shipping spec), so the darwin
+// Bond ships macOS-only on purpose (see the shipping spec), so the darwin
 // column is the one that is exercised and verified. The win32 column is written
 // from the documented install paths of each tool and is NOT verified — it
 // exists so that adding Windows is filling in a table rather than an
@@ -25,7 +25,7 @@ const WIN = 'win32';
 const DEAD_SHELLS = new Set(['/usr/bin/false', '/bin/false', '/usr/sbin/nologin', '/sbin/nologin', '/usr/bin/true', '/bin/true']);
 
 // Windows' own shells, by full path. Asked to start a bare `powershell.exe`,
-// Windows looks in the folder Nami runs from and then in the CURRENT folder
+// Windows looks in the folder Bond runs from and then in the CURRENT folder
 // before it gets to System32 — so a project holding a file of that name would
 // be the pane, the PATH probe and every helper. A full path leaves nothing to
 // look for (owner-only.js runs icacls the same way, for the same reason).
@@ -46,7 +46,7 @@ function windowsPowerShell(env) { return system32(env) + '\\WindowsPowerShell\\v
 // interactive one. Login alone is not enough: zsh reads .zshrc only when
 // interactive, and .zshrc is where installers write their PATH lines — bun,
 // opencode and nvm among them. With `-lc` those lines are never read, so a
-// Dock-launched Nami (which inherits no PATH at all) reported perfectly
+// Dock-launched Bond (which inherits no PATH at all) reported perfectly
 // well-installed agents as missing. Started from a terminal it looked fine,
 // because the inherited PATH was covering for it.
 function loginShell(platform = process.platform, env = process.env) {
@@ -55,7 +55,7 @@ function loginShell(platform = process.platform, env = process.env) {
     // profiles are slow and are not where PATH comes from on Windows.
     //
     // The PATH question is asked of the registry, not of $env:PATH. A child
-    // PowerShell inherits Nami's own environment, so $env:PATH would hand back
+    // PowerShell inherits Bond's own environment, so $env:PATH would hand back
     // exactly what we already have — and miss the entry an installer wrote a
     // minute ago, which is the one case the probe exists for.
     return {
@@ -113,11 +113,11 @@ function psQuote(text) {
 // reads at the front of the line; it also sets it, since a profile may have
 // turned the old behaviour back on. Never for a cmdlet's argument (Set-Location
 // takes the string itself, quotes and all) — that is psQuote's.
-const PS_NATIVE_HEAD = "$namiPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ";
+const PS_NATIVE_HEAD = "$bondPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ";
 function psNativeArg(text) {
   const s = String(text == null ? '' : text);
   const pasted = '"' + s.replace(/(\\*)"/g, '$1$1""').replace(/(\\*)$/, '$1$1') + '"';
-  return `$(if ($namiPastes) {${psQuote(pasted)}} else {${psQuote(s)}})`;
+  return `$(if ($bondPastes) {${psQuote(pasted)}} else {${psQuote(s)}})`;
 }
 
 // The shell a pane runs. On a Mac that is the user's own. On Windows SHELL is
@@ -128,7 +128,7 @@ function psNativeArg(text) {
 // looking, because this module does no I/O). Someone who installed 7 expects
 // to be in it: it chains with `&&`, speaks UTF-8 and draws better. Windows
 // PowerShell 5.1 is on every PC and is what everyone else gets — which is why
-// a command line Nami builds itself must always run on 5.1, whatever this
+// a command line Bond builds itself must always run on 5.1, whatever this
 // returns.
 function paneShell(platform = process.platform, env = process.env, pwsh = '') {
   if (platform === WIN) return pwsh || windowsPowerShell(env);
@@ -204,7 +204,7 @@ function pathDelimiter(platform = process.platform) { return platform === WIN ? 
 // Where to look when the shell probe comes back empty — a .zshrc that prints a
 // banner, refuses to run without a tty, or does not exist must degrade to a
 // worse answer, never to "you have no agents installed". The running PATH goes
-// first (it is the truth when Nami *was* started from a terminal), then the
+// first (it is the truth when Bond *was* started from a terminal), then the
 // documented install location of each CLI we know about.
 function binSearchDirs({ home = '', env = {}, platform = process.platform } = {}) {
   const win = platform === WIN;
@@ -305,7 +305,7 @@ function windowChrome(platform = process.platform, background = '#fffdf6') {
 
 // Where PowerShell 7 might be, best guess first. PATH leads because it is what
 // the user would get by typing `pwsh` — the MSI, winget, scoop and the Store
-// alias all put it there — and the MSI's own folder follows for a Nami that
+// alias all put it there — and the MSI's own folder follows for a Bond that
 // was started before the installer's PATH edit reached it. Candidates only:
 // the caller checks them, because this module does no I/O. Nothing off
 // Windows, where the pane shell is the user's own and is never second-guessed.
@@ -331,7 +331,7 @@ function pwshCandidates({ env = {}, pathValue, platform = process.platform } = {
 // So a cmd.exe plan is started from the home folder instead, and the caller
 // passes the real folder to the tool in words (ACP sends it in session/new).
 // `pushd` would get cmd.exe into the share, but by mapping a drive letter: the
-// tool would then report U:\ paths that match nothing Nami knows, and handing
+// tool would then report U:\ paths that match nothing Bond knows, and handing
 // out drive letters on someone's PC is not a thing a helper process should do.
 const UNC_RE = /^[\\/]{2}[^\\/]/;
 function planCwd(plan, cwd, { home = '', env = {}, platform = process.platform } = {}) {
@@ -342,7 +342,7 @@ function planCwd(plan, cwd, { home = '', env = {}, platform = process.platform }
   return [home, env && env.SystemRoot].find((d) => d && !UNC_RE.test(d)) || 'C:\\Windows';
 }
 
-// Where node.exe might be, for a shim Nami goes round (cmd-shim.js): the
+// Where node.exe might be, for a shim Bond goes round (cmd-shim.js): the
 // folders of PATH in order, which is where the shim's own bare `node` would
 // have been found, then the installer's folder. Only folders written in full.
 // A relative entry means a different place in every project, and a program

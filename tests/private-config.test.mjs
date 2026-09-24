@@ -34,11 +34,11 @@ test('configuration saves keep fake keys owner-only and preserve linked configur
     assert.equal(writeSettings({ file: settings, patch: { sttProvider: 'local' } }).ok, true);
     assert.equal(fs.statSync(settings).mode & 0o777, 0o600);
     assert.equal(JSON.parse(fs.readFileSync(settings)).theme, 'paper');
-    assert.deepEqual(fs.readdirSync(root).sort(), ['.nami', 'agent.json', 'linked.json', 'settings.json']);
+    assert.deepEqual(fs.readdirSync(root).sort(), ['.bond', 'agent.json', 'linked.json', 'settings.json']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 test('configuration saves merge into what is there and leave no temporary file behind', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-private-config-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bond-private-config-'));
   try {
     const file = path.join(root, 'agent.json');
     fs.writeFileSync(file, JSON.stringify({ keep: true }));
@@ -49,7 +49,7 @@ test('configuration saves merge into what is there and leave no temporary file b
     assert.equal(writeSettings({ file: settings, patch: { theme: 'paper' } }).ok, true);
     assert.equal(writeSettings({ file: settings, patch: { sttProvider: 'local' } }).ok, true);
     assert.equal(JSON.parse(fs.readFileSync(settings)).theme, 'paper');
-    assert.deepEqual(fs.readdirSync(root).sort(), ['.nami', 'agent.json', 'settings.json']);
+    assert.deepEqual(fs.readdirSync(root).sort(), ['.bond', 'agent.json', 'settings.json']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -121,10 +121,10 @@ test('a volume that cannot hold permissions costs a false, never the save', () =
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 // The same promise as the 0o600 test at the top, asked of real NTFS permissions:
-// the saves Nami really makes, read back with icacls. The user's temp folder
+// the saves Bond really makes, read back with icacls. The user's temp folder
 // hands down Administrators as well as the user, so there is something to lose.
 test('on a real Windows configuration saves keep fake keys readable by the user and SYSTEM alone', { skip: WINDOWS_ONLY }, () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nami-private-config-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bond-private-config-'));
   try {
     handDownAReadForUsers(root);
     const file = path.join(root, 'agent.json');
@@ -140,13 +140,13 @@ test('on a real Windows configuration saves keep fake keys readable by the user 
     const master = upsertMaster({ scope: 'user', homeDir: root, id: 'fixture', entry: { command: 'node' } });
     assert.equal(master.ok, true);
     assertOwnerOnly(master.file);
-    assertOwnerOnly(path.join(root, '.nami'), { directory: true });
+    assertOwnerOnly(path.join(root, '.bond'), { directory: true });
     assert.deepEqual(Object.keys(readMaster({ scope: 'user', homeDir: root })), ['fixture']);
     const settings = path.join(root, 'settings.json');
     assert.equal(writeSettings({ file: settings, patch: { theme: 'paper' } }).ok, true);
     assert.equal(writeSettings({ file: settings, patch: { sttProvider: 'local' } }).ok, true);
     assertOwnerOnly(settings);
     assert.deepEqual(readSettings({ file: settings }), { theme: 'paper', sttProvider: 'local' });
-    assert.deepEqual(fs.readdirSync(root).sort(), ['.nami', 'agent.json', 'settings.json']);
+    assert.deepEqual(fs.readdirSync(root).sort(), ['.bond', 'agent.json', 'settings.json']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

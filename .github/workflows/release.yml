@@ -84,9 +84,9 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           umask 077
-          mkdir -p "$RUNNER_TEMP/nami-signing"
-          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/nami-signing/AuthKey.p8"
-          echo "APPLE_API_KEY=$RUNNER_TEMP/nami-signing/AuthKey.p8" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/bond-signing"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/bond-signing/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/bond-signing/AuthKey.p8" >> "$GITHUB_ENV"
 
       # Build only — publishing is a separate step below, deliberately.
       #
@@ -107,7 +107,7 @@ jobs:
 
       - name: Remove temporary signing key
         if: always()
-        run: rm -rf "$RUNNER_TEMP/nami-signing"
+        run: rm -rf "$RUNNER_TEMP/bond-signing"
 
       # Refuse to publish something Gatekeeper would reject. This is the check a
       # user performs by double-clicking, and it is silent at build time.
@@ -133,8 +133,8 @@ jobs:
             echo "== $zip"
             work="$(mktemp -d)"
             ditto -x -k "$zip" "$work"
-            app="$work/Nami.app"
-            [ -d "$app" ] || { echo "no Nami.app inside $zip"; exit 1; }
+            app="$work/Bond.app"
+            [ -d "$app" ] || { echo "no Bond.app inside $zip"; exit 1; }
             codesign --verify --deep --strict "$app"
             spctl -a -vvv -t exec "$app"
             xcrun stapler validate "$app"
@@ -157,16 +157,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --repo mrdainami/nami \
+            --repo "${{ github.repository }}" \
             --draft \
-            --title "Nami ${GITHUB_REF_NAME#v}" \
+            --title "Bond ${GITHUB_REF_NAME#v}" \
             --notes "Signed and notarized for macOS. Apple Silicon and Intel builds attached." \
             release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
 
       - name: Report what shipped
         if: always()
         run: |
-          for app in release/mac*/Nami.app; do
+          for app in release/mac*/Bond.app; do
             [ -d "$app" ] || continue
             echo "== $app"
             codesign -dv "$app" 2>&1 | grep -E 'Identifier|TeamIdentifier' || echo "  unsigned"

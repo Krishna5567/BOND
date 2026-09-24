@@ -25,7 +25,7 @@ export const MASTER_PLATFORM = 'project';
 
 // Every tool agent-master.js can render a dialect for. Hermes is absent because
 // it reads no agent format at all; Cursor is absent because it reads Claude's
-// copy and is not a binary Nami detects.
+// copy and is not a binary Bond detects.
 export const WRITERS = ['claude', 'codex', 'opencode', 'antigravity', 'kimi', 'grok'];
 
 export function isMaster(item) {
@@ -47,7 +47,7 @@ export function canRunOn(item, toolId) {
 
 // Four candidates, best first, each one skipped unless the agent can speak it
 // and this Mac has it. Claude breaks the final tie only because it is the one
-// tool Nami can assume something about.
+// tool Bond can assume something about.
 export function resolveTool({ item, remembered, focusedTool, installed } = {}) {
   const reach = reachOf(item);
   const have = new Set(installed || []);

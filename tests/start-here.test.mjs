@@ -16,25 +16,25 @@ test('the note greets the folder by name', () => {
 });
 
 test('the note teaches the two things that stop people', () => {
-  const md = startHereNote('Nami', 'darwin');
+  const md = startHereNote('Bond', 'darwin');
   // The boundary, stated as the promise itself. This is the sentence that earns
   // the trust the whole app runs on, so it is pinned: a rewrite that quietly
   // drops it should fail here rather than ship.
   assert.match(md, /nowhere else on your Mac/i);
   // The same promise, to the person it is actually being made to.
-  assert.match(startHereNote('Nami', 'win32'), /nowhere else on your PC/i);
+  assert.match(startHereNote('Bond', 'win32'), /nowhere else on your PC/i);
   // The approval card, named exactly as the UI names it — a note that calls it
   // anything else sends people looking for a control that does not exist.
   assert.ok(md.includes('Needs your OK'), 'should name the approval card');
 });
 
-test('the note says Nami is not itself the agent', () => {
-  const md = startHereNote('Nami');
+test('the note says Bond is not itself the agent', () => {
+  const md = startHereNote('Bond');
   assert.match(md, /your own (Claude|ChatGPT)|subscription|account/i);
 });
 
 test('the note carries the full twelve example asks', () => {
-  const md = startHereNote('Nami');
+  const md = startHereNote('Bond');
   const bullets = md.split('\n').filter((l) => /^[-*] /.test(l));
   // Twelve is not decoration: the quick start's row 4 button says "See 12
   // examples" and opens this note. If the list shrinks, that button starts

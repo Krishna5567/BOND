@@ -30,8 +30,8 @@ function createImportJobs({ resolveSource, resolveProfile, createWorker, applyBa
     active.delete(j.profileId); emit(j); j.resolve(snapshot(j));
   }
   function start(owner,args) {
-    if(closing) throw Error('Nami is closing.');
-    if(typeof args.profileId!=='string' || !args.profileId) throw Error('Choose a destination Nami profile before importing.');
+    if(closing) throw Error('Bond is closing.');
+    if(typeof args.profileId!=='string' || !args.profileId) throw Error('Choose a destination Bond profile before importing.');
     const profile=resolveProfile(args.profileId), source=resolveSource(args.sourceId);
     if(active.has(profile.id)) throw Error('An import is already running for this profile. Open its progress or cancel it first.');
     const categories=Object.fromEntries(CATEGORIES.map(k=>[k,args[k]!==false]));
@@ -68,7 +68,7 @@ function createImportJobs({ resolveSource, resolveProfile, createWorker, applyBa
             j.stage='copying'; j.category=category; emit(j);
             const r=await applyBatch({profileId:j.profileId,sourceId:j.source.id,firstBatch:j.results[category].copied===0,cancelled:()=>Atomics.load(j.cancelFlag,0)!==0},category,rows);
             j.results[category].copied+=r.copied||0; j.results[category].failed+=r.failed||0;
-            if(r.failed && !j.results[category].reasons.includes('Some rows were refused by Nami.')) j.results[category].reasons.push('Some rows were refused by Nami.');
+            if(r.failed && !j.results[category].reasons.includes('Some rows were refused by Bond.')) j.results[category].reasons.push('Some rows were refused by Bond.');
             emit(j);
           }).catch(error=>stop(j,error.message)).finally(()=>{if(!j.exited)worker.postMessage({type:'ack'});});
         } else if(message.type==='done') j.done=true;

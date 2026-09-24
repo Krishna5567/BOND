@@ -5,7 +5,7 @@
 // still open and writes them down. Windows and Linux have one act. Closing the
 // last window IS quitting, so by the time anything is written down the window
 // that mattered has already been destroyed, the list is empty, and tomorrow
-// Nami opens on "no folder" — having forgotten the one place you were working.
+// Bond opens on "no folder" — having forgotten the one place you were working.
 //
 // So off the Mac, the last window to close is remembered as still open. Closing
 // a window while others remain is still a close on purpose, there as here.

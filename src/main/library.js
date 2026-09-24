@@ -113,7 +113,7 @@ function skillIdentity(entry) {
 // separate agent that happens to share a name, and it keeps its own row.
 //
 // The distinction is not academic: OpenCode reads both `.opencode/agent` and
-// `.opencode/agents`, delivery writes the plural and Nami's own create writes
+// `.opencode/agents`, delivery writes the plural and Bond's own create writes
 // the singular. Matching on the real target path rather than on the slug is
 // what keeps a hand-made `.opencode/agent/foo.md` from vanishing behind an
 // unrelated master called `foo`.
@@ -167,7 +167,7 @@ function mkSkillItem(source, scope, entry) {
   });
 }
 
-// Where skills live, per tool. Nami reads every row and writes to exactly one
+// Where skills live, per tool. Bond reads every row and writes to exactly one
 // of them — `<project>/skills`, the only location with no agent's name on it.
 // `owner` is the agent that reads the folder natively; null means nothing does,
 // which is the honest state of ~/.agents/skills on a real machine.
@@ -232,7 +232,7 @@ function scanProject({ projectPath, homeDir } = {}) {
   const home = homeDir || os.homedir();
   const items = [];
   const seen = new Set();
-  // Masters first: one agent, one row. Copies Nami delivered into the
+  // Masters first: one agent, one row. Copies Bond delivered into the
   // platform folders carry the marker and are hidden — listing them too
   // would turn one agent into six rows the moment it works everywhere.
   for (const f of listMd(path.join(projectPath, 'agents'))) items.push(mkItem('agent', 'project', 'project', f));
@@ -471,7 +471,7 @@ function entryExists(p) { try { fs.lstatSync(p); return true; } catch (_) { retu
 async function deleteItem({ filePath, projectPath, homeDir, trashFn, existsFn = entryExists }) {
   const home = homeDir || os.homedir();
   const abs = path.resolve(String(filePath || ''));
-  // Built from the same source tables the scan uses, so anything Nami is willing
+  // Built from the same source tables the scan uses, so anything Bond is willing
   // to list it is willing to clean up — which is what makes the broken-links
   // group actionable instead of just a shelf of other tools' rot.
   const roots = [];

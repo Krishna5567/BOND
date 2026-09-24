@@ -43,21 +43,23 @@ test('kie (install kind) points config at the built server with the key in env',
   const s = serviceById('kie');
   assert.equal(s.kind, 'install');
   // a Mac's folder, so a Mac is who is asked — a PC's path is in windows-connectors
-  const c = s.claudeEntry({ token: 'kie_1', installDir: '/Users/x/.nami/connectors/kie-mcp' }, 'darwin');
+  const c = s.claudeEntry({ token: 'kie_1', installDir: '/Users/x/.bond/connectors/kie-mcp' }, 'darwin');
   assert.equal(c.command, 'node');
   assert.ok(c.args[0].endsWith('dist/index.js'));
   assert.equal(c.env.KIE_API_KEY, 'kie_1');
 });
 
-test('Nami Browser is not a catalog entry', () => {
+test('Bond Browser is not a catalog entry', () => {
+  assert.equal(serviceById('bond-browser'), null);
   assert.equal(serviceById('nami-browser'), null);
-  assert.ok(!KNOWN_SERVICES.some((s) => s.id === 'nami-browser' || /nami-browser/i.test(s.name)));
+  assert.ok(!KNOWN_SERVICES.some((s) => s.id === 'bond-browser' || s.id === 'nami-browser' || /bond-browser/i.test(s.name)));
 });
 
-test('guided finish contract: write connections.json mcpServers, then Nami delivers', () => {
+test('guided finish contract: write connections.json mcpServers, then Bond delivers', () => {
   assert.match(GUIDED_FINISH, /connections\.json/);
   assert.match(GUIDED_FINISH, /mcpServers/);
-  assert.match(GUIDED_FINISH, /Nami copies it to every installed agent's own config/);
+  assert.match(GUIDED_FINISH, /Bond copies it to every installed agent's own config/);
+  assert.doesNotMatch(GUIDED_FINISH, /bond-browser/);
   assert.doesNotMatch(GUIDED_FINISH, /nami-browser/);
   for (const s of KNOWN_SERVICES.filter((x) => x.kind === 'guided')) {
     assert.ok(s.guide, `${s.id} needs a guide for the sheet`);

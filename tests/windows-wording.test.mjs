@@ -1,6 +1,6 @@
 // No Mac word reaches a Windows screen, checked rather than remembered.
 //
-// Nami learned to talk on a Mac: "Reveal in Finder", "on this Mac", ⌘N. About
+// Bond learned to talk on a Mac: "Reveal in Finder", "on this Mac", ⌘N. About
 // seventy strings said so, and on Windows each one is a small lie — there is no
 // Finder to reveal in and no ⌘ key to press. They all moved onto
 // src/renderer/platform-words.mjs. This file is what keeps them there, in two
@@ -167,7 +167,7 @@ test('the guard can still see what it is guarding against', () => {
     "toast('Open it from ⌘N — new session, pick the agent.');",
     '<span class="kbd">opens the Mac dialog</span>',
     "title = 'Unlock macOS Keychain first';",
-    'Open Nami from the Dock and it will not be there.',
+    'Open Bond from the Dock and it will not be there.',
     '<button class="btn">Save ⌘S</button>',
   ];
   for (const line of bad) assert.ok(macWordsIn(codeOf(line)).length, 'not caught: ' + line);
@@ -178,7 +178,7 @@ test('the guard can still see what it is guarding against', () => {
     "const cardFinder = q('.card-finder', wrap);",
     "button.textContent = 'Add to session… ' + kb(['⇧', '⌘', '↵'], api.platform);",
     "refreshAgents();   // pre-detect so ⌘N is instant",
-    "api.openUrl('https://nami.dainami.ai/docs/'); // the Mac page",
+    "api.openUrl('https://bond.ai/docs/'); // the Mac page",
   ];
   for (const line of fine) assert.deepEqual(macWordsIn(codeOf(line)), [], 'wrongly caught: ' + line);
 });
@@ -189,7 +189,7 @@ test('no renderer code spells out a Mac word that Windows would read', () => {
     ? 'These would show a Mac word on Windows:\n'
       + stray.map((h) => `  src/renderer/${h.file}:${h.line}  ${h.what}\n      ${h.code}`).join('\n')
       + '\n\nUse src/renderer/platform-words.mjs: words(platform).thisMac / .finder / .reveal,\n'
-      + 'kb([…]) for a chord written in Mac glyphs, chordText(name) for one of Nami\'s own.\n'
+      + 'kb([…]) for a chord written in Mac glyphs, chordText(name) for one of Bond\'s own.\n'
       + 'The Mac column there is what the Mac has always printed, so nothing changes on a Mac.\n'
       + 'If Windows can never see the line, add it to ALLOWED in this file and say why.'
     : '');

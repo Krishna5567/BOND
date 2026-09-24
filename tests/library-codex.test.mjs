@@ -42,7 +42,7 @@ before(() => {
   // other scan skips delivered copies; ~/.claude/agents was the one that did not.
   write(path.join(home, '.claude/agents/mine.md'), '---\nname: mine\ndescription: Yours.\n---\nbody\n');
   write(path.join(home, '.claude/agents/copied.md'),
-    '---\nname: copied\ndescription: A copy.\n---\n\n<!-- made by Nami from agents/copied.md — edit that file; this copy is regenerated -->\n\nbody\n');
+    '---\nname: copied\ndescription: A copy.\n---\n\n<!-- made by Bond from agents/copied.md — edit that file; this copy is regenerated -->\n\nbody\n');
 });
 
 test('a hand-made Codex agent is listed, as Codex, with its filename as the slug', () => {

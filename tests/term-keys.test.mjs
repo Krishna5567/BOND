@@ -69,7 +69,7 @@ test('a Mac is never touched: ⌘C is the menu\'s and Ctrl+C is always ^C', () =
   }
 });
 
-// Nami's own keys. On a Mac they are ⌘ keys and a terminal never sees them. On
+// Bond's own keys. On a Mac they are ⌘ keys and a terminal never sees them. On
 // Windows they would be Ctrl keys, and inside a pane those are the shell's — so
 // each has a Ctrl+Shift form, and that form has to get past xterm to the app.
 const CS = { ctrlKey: true, shiftKey: true };
@@ -113,7 +113,7 @@ test('Ctrl+Shift+C, V and A stay copy, paste and select-all', () => {
   for (const k of ['C', 'V', 'A']) assert.equal(appChord(key(k, CS), WIN), null);
 });
 
-test('a Ctrl+Shift letter Nami has no use for is left alone', () => {
+test('a Ctrl+Shift letter Bond has no use for is left alone', () => {
   for (const k of ['B', 'D', 'E', 'F', 'L', 'P', 'R', 'Z']) {
     assert.equal(appChord(key(k, CS), WIN), null, k);
     assert.equal(termKeyAction(key(k, CS), WIN), null, k);

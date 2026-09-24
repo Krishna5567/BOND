@@ -1,4 +1,4 @@
-Caveat and Courier Prime are bundled with Nami under the SIL Open Font
+Caveat and Courier Prime are bundled with Bond under the SIL Open Font
 License 1.1. Latin subset, as served by Google Fonts. Full license text
 for each family follows.
 

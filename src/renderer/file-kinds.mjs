@@ -90,8 +90,8 @@ export function shellQuote(p, platform = currentPlatform()) {
 // reads `@src/app.js` there, and a backslash at a prompt is never just a
 // character. Off Windows a backslash is part of a name, and such a name quotes.
 //
-// The root boundary is the separator, never the prefix: '/Users/cal/nami-other'
-// starts with '/Users/cal/nami' as a string and is a different folder. On
+// The root boundary is the separator, never the prefix: '/Users/cal/bond-other'
+// starts with '/Users/cal/bond' as a string and is a different folder. On
 // Windows the same folder spelled in another case is still the same folder.
 const MENTION_SAFE = /^[\p{L}\p{N}._\-/+@]+$/u;
 export function pathRef(path, root, isDir, platform = currentPlatform()) {
@@ -110,8 +110,8 @@ export function fileUrl(absPath, platform = currentPlatform()) {
   return toFileUrl(absPath, platform);
 }
 
-// A viewed HTML file → its nami-doc:// URL, served from its own folder as root so
-// its relative images resolve while the page stays cross-origin to Nami. Mirrors
+// A viewed HTML file → its bond-doc:// URL, served from its own folder as root so
+// its relative images resolve while the page stays cross-origin to Bond. Mirrors
 // buildDocUrl in src/main/doc-protocol.js, which is the side that has a real
 // `path`: the root it decodes must be absolute by that module's lights, so on
 // Windows it goes over as the backslashed C:\ folder it is.

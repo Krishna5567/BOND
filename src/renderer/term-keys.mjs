@@ -23,7 +23,7 @@
 // AltGr arrives as Ctrl+Alt, and is how half of Europe types @ and {, so
 // anything with Alt held is left alone.
 //
-// The same single key is why Nami's own shortcuts need a rule here too. On a
+// The same single key is why Bond's own shortcuts need a rule here too. On a
 // Mac they are ⌘ keys and no terminal has ever wanted one. On Windows they are
 // Ctrl keys, and with a pane focused xterm turns Ctrl+N, Ctrl+W, Ctrl+K and
 // Ctrl+O into ^N, ^W, ^K and ^O and cancels the keydown — measured, not
@@ -78,7 +78,7 @@ const SHIFT_CHORDS = { t: 'new-session', n: 'new-window', k: 'agents', o: 'open-
 const isComma = (e) => e.key === ',' || (e.code === 'Comma' && !/^[a-z]$/i.test(String(e.key || '')));
 const isTabDigit = (e) => /^Digit[123]$/.test(String(e.code || '')) || (!e.code && /^[123]$/.test(String(e.key || '')));
 
-// Which of Nami's commands a keydown is asking for, in the form that works with
+// Which of Bond's commands a keydown is asking for, in the form that works with
 // a terminal focused. The names are the menu's (app-menu.js COMMANDS), plus
 // 'new-window'. Null on a Mac, always: its keys are read where they always were.
 export function appChord(e, { platform = '' } = {}) {

@@ -1,4 +1,4 @@
-/* Nami — the paper design system */
+/* Bond — the paper design system */
 
 /* The two faces the paper aesthetic is made of. These used to be fetched from
    fonts.googleapis.com on every launch, which cost two things: offline the whole
@@ -222,7 +222,8 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .brand { display: flex; align-items: center; gap: 10px; height: 26px; flex: none; }
 .brand-mark { display: inline-flex; align-items: center; gap: 8px; height: 26px; }
 .nami-mascot, .bond-mascot {
-  --nami-fill: #00A86B; --nami-foam: #fdf7e6; --nami-eye: #33302c;
+  --bond-fill: #00A86B; --bond-foam: #fdf7e6; --bond-eye: #33302c;
+  --nami-fill: var(--bond-fill); --nami-foam: var(--bond-foam); --nami-eye: var(--bond-eye);
   height: 28px; width: 28px; object-fit: contain; flex: none;
   background: #ffffff;
   border-radius: 7px;
@@ -243,7 +244,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
   font-size: 9px; line-height: 1; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--faint); white-space: nowrap; pointer-events: none;
 }
-/* the tagline sits on Nami's baseline, not the row's centre */
+/* the tagline sits on Bond's baseline, not the row's centre */
 .brand-sub { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
   align-self: center; }
 /* Reorganized topbar dock */
@@ -1237,7 +1238,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 /* One line in the bottom-left of the work area, sitting just above the keyboard
    hints — the quietest place on the desk. It was a card with a heading and two
    buttons first, and at that weight it read as something you had to deal with.
-   An update is the least urgent thing Nami has to say, so it says it once, in
+   An update is the least urgent thing Bond has to say, so it says it once, in
    the same voice as the hints, and gets out of the way.
 
    Anchored inside .main rather than the sheet so it can never sit on top of the
@@ -1336,7 +1337,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .tile {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   grid-column: span 2; grid-row: span 2;
-  container: nami-tile / inline-size;
+  container: bond-tile / inline-size;
   background: repeating-linear-gradient(0deg, rgba(120,95,60,0.02) 0 1px, transparent 1px 4px), var(--paper);
   border: 1px solid var(--dash); box-shadow: 5px 6px 0 var(--shadow-soft);
   position: relative;
@@ -1423,16 +1424,16 @@ body[data-platform="win32"] .btn .kb { display: none; }
    wider card also moves; the mic is for working in a session, and a one-column
    card is a glance, not a workstation. Pull the corner and it all returns.
    Container queries, so the same rule serves the desk, focus, any window. */
-@container nami-tile (max-width: 430px) {
+@container (max-width: 430px) {
   .tile-head .t-status .lbl { display: none; }
 }
-@container nami-tile (max-width: 350px) {
+@container (max-width: 350px) {
   .tile-head .t-zoom-in, .tile-head .t-zoom-out { display: none; }
 }
-@container nami-tile (max-width: 300px) {
+@container (max-width: 300px) {
   .tile-head .t-mic { display: none; }
 }
-@container nami-tile (max-width: 252px) {
+@container (max-width: 252px) {
   .tile-head .t-sub { display: none; }
 }
 .tile-head:active { cursor: grabbing; }
@@ -1462,7 +1463,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 #btn-theme .uni-i, #btn-settings .uni-i, #btn-help .uni-i { font-size: 17px; line-height: 1; }
 /* The ? gets its own colour so it does not read as a third settings icon.
    Amber is Calvin's call over blue. Worth knowing it is a trade: amber is also
-   Nami's "needs you" — the live badge, the unsaved dot, the approval card — so a
+   Bond's "needs you" — the live badge, the unsaved dot, the approval card — so a
    permanent amber chip up here spends a little of that signal. One token to
    change if the ? ever starts reading as an alert. */
 #btn-help {
@@ -1694,7 +1695,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 }
 
 /* Rich Markdown is loaded only after Edit opens. The editor library gets
-   Nami's existing paper variables rather than carrying a fifth theme of its
+   Bond's existing paper variables rather than carrying a fifth theme of its
    own, so paper/operator/glass/graphite change this surface exactly once. */
 .ed-rich {
   /* The scroller for the whole Edit page: properties strip + document move as
@@ -1729,7 +1730,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .ed-rich-doc { flex: 1 0 auto; display: flex; flex-direction: column; min-width: 0; }
 .ed-rich .milkdown { flex: 1 0 auto; display: flex; flex-direction: column; background: transparent; }
 .ed-rich .milkdown .ProseMirror.editor {
-  /* ProseMirror names its editable element `editor`; Nami's card root has the
+  /* ProseMirror names its editable element `editor`; Bond's card root has the
      same class. Reset the card's absolute flex layout here or the document is
      positioned like a second full card, leaving a large empty band above it. */
   position: relative; inset: auto; display: block; flex: 1 0 auto;
@@ -1768,13 +1769,14 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .ed-rich .milkdown .milkdown-table-block th { color: var(--ink); background: var(--paper-2); font-weight: 700; }
 .ed-rich .milkdown .milkdown-table-block td { color: var(--ink); background: transparent; }
 /* session column widths (drag a header edge; app.js mirrors them into Read) */
-.ed-rich .nami-col-resize {
+.ed-rich .bond-col-resize, .ed-rich .nami-col-resize {
   position: absolute; width: 9px; cursor: col-resize; z-index: 30; touch-action: none;
 }
-.ed-rich .nami-col-resize::after {
+.ed-rich .bond-col-resize::after, .ed-rich .nami-col-resize::after {
   content: ''; position: absolute; top: 0; bottom: 0; left: 3.5px; width: 2px;
   background: var(--green); opacity: 0; transition: opacity 0.12s;
 }
+.ed-rich .bond-col-resize:hover::after, .ed-rich .bond-col-resize.live::after,
 .ed-rich .nami-col-resize:hover::after, .ed-rich .nami-col-resize.live::after { opacity: 1; }
 /* Crepe draws the handle 66px wide (two 32px buttons side by side) and floats
    it 16px left of the text — at a 22px gutter that clipped it entirely (and at
@@ -1957,7 +1959,7 @@ body[data-platform="win32"] .btn .kb { display: none; }
 .md-read hr { border: none; border-top: 1px dashed var(--dash); margin: 20px 0; }
 .md-read a { text-decoration: underline; }
 .md-read strong { font-weight: 700; }
-.md-read mark, .ed-rich mark[data-nami-highlight] {
+.md-read mark, .ed-rich mark[data-bond-highlight], .ed-rich mark[data-nami-highlight] {
   padding: 0 2px; background: var(--amber-bg); color: inherit;
   text-decoration: underline; text-decoration-color: var(--amber-line); text-decoration-thickness: 2px;
 }

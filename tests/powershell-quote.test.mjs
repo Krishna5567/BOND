@@ -123,11 +123,11 @@ function crtSplit(line) {
 // The two strings psNativeArg wrote: the one 5.1 pastes, and the one 7.3 and
 // later hand over as it is.
 function bothForms(written) {
-  const m = /^\$\(if \(\$namiPastes\) \{([\s\S]*)\} else \{([\s\S]*)\}\)$/.exec(written);
+  const m = /^\$\(if \(\$bondPastes\) \{([\s\S]*)\} else \{([\s\S]*)\}\)$/.exec(written);
   assert.ok(m, written);
   // the split between the two is wherever both halves read back as strings
   for (let at = written.indexOf('} else {'); at !== -1; at = written.indexOf('} else {', at + 1)) {
-    const pasted = readBack(written.slice('$(if ($namiPastes) {'.length, at)), exact = readBack(written.slice(at + '} else {'.length, -2));
+    const pasted = readBack(written.slice('$(if ($bondPastes) {'.length, at)), exact = readBack(written.slice(at + '} else {'.length, -2));
     if (pasted !== null && exact !== null) return { pasted, exact };
   }
   return assert.fail(written);
@@ -141,8 +141,8 @@ test('a string with a quote or a closing backslash reaches a program whole, thro
     assert.equal(ps51Paste(pasted), pasted, 'and 5.1 leaves it as it was written');
     assert.equal(exact, text);
   }
-  assert.equal(psNativeArg('say "hi"'), '$(if ($namiPastes) {\'"say ""hi"""\'} else {\'say "hi"\'})');
-  assert.equal(psNativeArg('it\u2019s dir\\'), '$(if ($namiPastes) {\'"it\u2019\u2019s dir\\\\"\'} else {\'it\u2019\u2019s dir\\\'})');
+  assert.equal(psNativeArg('say "hi"'), '$(if ($bondPastes) {\'"say ""hi"""\'} else {\'say "hi"\'})');
+  assert.equal(psNativeArg('it\u2019s dir\\'), '$(if ($bondPastes) {\'"it\u2019\u2019s dir\\\\"\'} else {\'it\u2019\u2019s dir\\\'})');
 });
 
 test('a first message is added to a PowerShell line so that it arrives exactly, and to a POSIX one as ever', () => {
@@ -156,7 +156,7 @@ test('a first message is added to a PowerShell line so that it arrives exactly, 
   // PowerShell it is in, and the argument is written for both
   assert.equal(withPromptArgs('codex', ['--', 'say "hi"'], { quote: ps, shell: PS }), PS_NATIVE_HEAD + 'codex -- ' + psNativeArg('say "hi"'));
   assert.equal(withPromptArgs('opencode', ['--prompt=dir\\'], { quote: ps, shell: PS }), PS_NATIVE_HEAD + 'opencode ' + psNativeArg('--prompt=dir\\'));
-  assert.equal(PS_NATIVE_HEAD, "$namiPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ");
+  assert.equal(PS_NATIVE_HEAD, "$bondPastes = -not (Test-Path variable:PSNativeCommandArgumentPassing); $PSNativeCommandArgumentPassing = 'Standard'; ");
   // a Mac, where a quote inside single quotes was never anything but a quote
   for (const seed of TEXTS) assert.equal(withPromptArgs('codex', ['--', seed], { quote: sh, shell: '/bin/zsh' }), 'codex ' + ['--', seed].map(sh).join(' '));
   assert.equal(withPromptArgs('codex', ['--', 'say "hi"'], { quote: sh, shell: '/bin/zsh' }), "codex -- 'say \"hi\"'");

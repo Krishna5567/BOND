@@ -11,7 +11,7 @@ const fsOps = {
   // Async, unlike its siblings, and deliberately: every other verb here touches
   // one entry, but a copy can be a folder someone dragged in from Finder. A
   // synchronous recursive copy of a few hundred megabytes freezes the main
-  // process, which in Nami means every session's pty stops being read.
+  // process, which in Bond means every session's pty stops being read.
   cp: (a, b) => fs.promises.cp(a, b, { recursive: true, errorOnExist: true, force: false }),
 };
 

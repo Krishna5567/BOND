@@ -57,6 +57,6 @@ function readTailTitle(file) {
   }
 }
 
-// Which of the two names wins, and whether nami may overwrite a tile's label
+// Which of the two names wins, and whether Bond may overwrite a tile's label
 // with it, is the renderer's call — see adoptTitle in session-name.mjs.
 module.exports = { scanTitles, claudeTitle, readTailTitle, TAIL_BYTES };

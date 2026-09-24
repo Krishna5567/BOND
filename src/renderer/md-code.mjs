@@ -1,4 +1,4 @@
-// Nami — fence colouring for the card and Read renderers.
+// Bond — fence colouring for the card and Read renderers.
 //
 // Same stance as md.mjs: zero-dependency, escape-first, no guessing. A
 // language this file doesn't know comes back as escaped plain text — never a

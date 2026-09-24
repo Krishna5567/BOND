@@ -20,7 +20,7 @@ function wireBrowserOverlays(ipcMain) {
       w.on('close', async event => {
         if(approved || !records.pendingCount)return;
         event.preventDefault(); if(asking)return; asking=true;
-        try { const result=await dialog.showMessageBox(w,{type:'question',message:'Discard pending browser annotations and close Nami?',detail:'These temporary notes have not been inserted into a session.',buttons:['Keep notes','Discard and close'],defaultId:0,cancelId:0});
+        try { const result=await dialog.showMessageBox(w,{type:'question',message:'Discard pending browser annotations and close Bond?',detail:'These temporary notes have not been inserted into a session.',buttons:['Keep notes','Discard and close'],defaultId:0,cancelId:0});
           if(result.response===1&&!w.isDestroyed()){approved=true;w.close();}
         } finally {asking=false;}
       });
@@ -36,7 +36,7 @@ function wireBrowserOverlays(ipcMain) {
       if (typeof item.id !== 'string' || typeof item.html !== 'string' || item.html.length > 150000 || ![item.x,item.y,item.width,item.height].every(Number.isFinite) || item.width <= 0 || item.height <= 0) continue;
       let rec = records.get(item.id);
       if (!rec) {
-        const view = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'browser-overlay-preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'nami-trusted-overlays' } });
+        const view = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'browser-overlay-preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'bond-trusted-overlays' } });
         view.setBackgroundColor('#00000000'); view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
         view.webContents.on('will-navigate', e => e.preventDefault());
         rec = { view, window: w, ready: false, pending: null }; records.set(item.id, rec);

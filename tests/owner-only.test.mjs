@@ -131,8 +131,8 @@ test('entries set on the file itself are replaced, not added to', () => {
   assert.ok(ps, 'the exact form was used');
   assert.equal(ps.file, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');   // by full path, never found on PATH
   // the file name and the SID travel as data, never as part of the script
-  assert.equal(ps.env.NAMI_ACL_TARGET, "C:\\proj\\it's; $(calc).json");
-  assert.equal(ps.env.NAMI_ACL_SID, SID);
+  assert.equal(ps.env.BOND_ACL_TARGET || ps.env.NAMI_ACL_TARGET, "C:\\proj\\it's; $(calc).json");
+  assert.equal(ps.env.BOND_ACL_SID || ps.env.NAMI_ACL_SID, SID);
   assert.ok(!ps.args.join(' ').includes('calc'), 'nothing of the path is in the command line');
   assert.equal(reads, 2, 'and it was read back again afterwards');
   // a cold PowerShell on a busy machine needs longer than icacls ever does

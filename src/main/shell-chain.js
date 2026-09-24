@@ -42,12 +42,12 @@ function chainLine(steps, shell = '') {
 // rule connections.js keeps for service ids.
 const REPO_RE = /^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9][A-Za-z0-9._-]*)+$/;
 
-// Clone a connector's repo into ~/.nami/connectors/<name> and build it.
+// Clone a connector's repo into ~/.bond/connectors/<name> and build it.
 //
 // `dir` and `entry` are returned as well as the line, so nothing else has to
 // know where a connector lands: on a Mac they keep the `~` the line has always
 // used (main expands it when it stats or writes a config); on a PC they are
-// real paths, because there is no shell between Nami and git to expand one.
+// real paths, because there is no shell between Bond and git to expand one.
 //
 // npm is `npm.cmd` on a PC. Node ships an npm.ps1 next to it, PowerShell picks
 // the .ps1 first, and a stock Windows refuses to run any script at all
@@ -59,12 +59,12 @@ function connectorInstall({ repo, home = '', platform = process.platform, shell 
   if (!REPO_RE.test(url)) return null;
   const name = url.split('/').pop();
   if (platform === 'win32') {
-    const dir = path.win32.join(home, '.nami', 'connectors', name);
+    const dir = path.win32.join(home, '.bond', 'connectors', name);
     const q = shellQuote(dir, shell);
     const steps = [`git clone ${url} ${q}`, `Set-Location -LiteralPath ${q}`, 'npm.cmd install', 'npm.cmd run build'];
     return { dir, entry: path.win32.join(dir, 'dist', 'index.js'), steps, command: chainLine(steps, shell) };
   }
-  const dir = '~/.nami/connectors/' + name;
+  const dir = '~/.bond/connectors/' + name;
   const steps = [`git clone ${url} ${dir}`, `cd ${dir}`, 'npm install', 'npm run build'];
   return { dir, entry: dir + '/dist/index.js', steps, command: chainLine(steps, shell) };
 }

@@ -1,5 +1,5 @@
 // .mcpb bundles: the official one-click MCP packaging — a zip holding the
-// server and a manifest.json that describes how to run it. Nami reads the
+// server and a manifest.json that describes how to run it. Bond reads the
 // manifest and turns it into an ordinary master entry, so a bundle is just a
 // third door into the same drawer: what lands in connections.json is
 // indistinguishable from a catalog or hand-typed connection.

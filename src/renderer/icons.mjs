@@ -1,4 +1,4 @@
-// Nami — vendored brand marks + type glyphs for the code chips.
+// Bond — vendored brand marks + type glyphs for the code chips.
 // Brand paths are from simple-icons (CC0 1.0), fetched once and inlined so the
 // app stays fully self-contained. Everything draws in currentColor, so the
 // chips keep their paper tints and both themes re-ink the glyphs for free.
@@ -16,7 +16,7 @@ const BRAND = {
   openai: '<path fill="currentColor" d="M22.282 9.821a6 6 0 0 0-.516-4.91a6.05 6.05 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a6 6 0 0 0-3.998 2.9a6.05 6.05 0 0 0 .743 7.097a5.98 5.98 0 0 0 .51 4.911a6.05 6.05 0 0 0 6.515 2.9A6 6 0 0 0 13.26 24a6.06 6.06 0 0 0 5.772-4.206a6 6 0 0 0 3.997-2.9a6.06 6.06 0 0 0-.747-7.073M13.26 22.43a4.48 4.48 0 0 1-2.876-1.04l.141-.081l4.779-2.758a.8.8 0 0 0 .392-.681v-6.737l2.02 1.168a.07.07 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494M3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085l4.783 2.759a.77.77 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646M2.34 7.896a4.5 4.5 0 0 1 2.366-1.973V11.6a.77.77 0 0 0 .388.677l5.815 3.354l-2.02 1.168a.08.08 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.08.08 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667m2.01-3.023l-.141-.085l-4.774-2.782a.78.78 0 0 0-.785 0L9.409 9.23V6.897a.07.07 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.8.8 0 0 0-.393.681zm1.097-2.365l2.602-1.5l2.607 1.5v2.999l-2.597 1.5l-2.607-1.5Z"/>',
   gemini: '<path fill="currentColor" d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68q.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58a12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68q-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96q2.19.93 3.81 2.55t2.55 3.81"/>',
   // The Antigravity arch, potraced from Google's own mark (the gradient "A",
-  // Dainami-OS/content/brand-assets/logos/antigravity-mark.png) the same way
+  // bond-desktop/content/brand-assets/logos/antigravity-mark.png) the same way
   // hermes was — solid currentColor, so the chip tints re-ink it per theme.
   antigravity: '<g transform="translate(0 23.04) scale(0.012 -0.012)"><path fill="currentColor" d="M901 1826 c-190 -63 -288 -235 -445 -786 -148 -523 -214 -674 -369 -853 -96 -110 -108 -143 -62 -173 113 -74 333 119 546 477 175 295 268 369 454 357 167 -11 247 -81 410 -358 198 -335 398 -520 521 -480 65 22 56 76 -31 170 -151 164 -224 329 -365 819 -136 475 -194 615 -305 726 -99 101 -235 139 -354 101z"/></g>',
   opencode: '<path fill="currentColor" d="M22 24H2V0h20zM17 4.8H7v14.4h10z"/>',

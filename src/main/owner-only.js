@@ -96,11 +96,12 @@ function exec(file, args, env, timeout = 5000) {
 // the file was left as it was). It gets twenty. Giving up early here does not
 // save a user any time worth having; it leaves their key file readable.
 const SET_EXACT_TIMEOUT = 20000;
-const SET_EXACT = "$ErrorActionPreference='Stop'; $t=$env:NAMI_ACL_TARGET; $dir=Test-Path -LiteralPath $t -PathType Container; "
+const SET_EXACT = "$ErrorActionPreference='Stop'; $t=if ($env:BOND_ACL_TARGET) { $env:BOND_ACL_TARGET } else { $env:NAMI_ACL_TARGET }; $dir=Test-Path -LiteralPath $t -PathType Container; "
   + "$s = if ($dir) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }; "
   + "$s.SetAccessRuleProtection($true, $false); "
   + "$inh = if ($dir) { [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit' } else { [System.Security.AccessControl.InheritanceFlags]::None }; "
-  + "foreach ($who in @($env:NAMI_ACL_SID, 'S-1-5-18')) { $r = New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', $inh, 'None', 'Allow'); $s.AddAccessRule($r) }; "
+  + "$userSid = if ($env:BOND_ACL_SID) { $env:BOND_ACL_SID } else { $env:NAMI_ACL_SID }; "
+  + "foreach ($who in @($userSid, 'S-1-5-18')) { $r = New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', $inh, 'None', 'Allow'); $s.AddAccessRule($r) }; "
   + "if ($dir) { [System.IO.Directory]::SetAccessControl($t, $s) } else { [System.IO.File]::SetAccessControl($t, $s) }";
 
 // Does the listing name anybody at all? A share with no permissions to set
@@ -127,7 +128,7 @@ function ownerOnly(target, { directory = false, platform = process.platform, env
     if (isOwnerOnly(listing)) return true;
     if (!namesSomeone(listing)) return false;
     run(path.win32.join(bin, 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', SET_EXACT],
-      { NAMI_ACL_TARGET: String(target), NAMI_ACL_SID: cache.sid }, SET_EXACT_TIMEOUT);
+      { BOND_ACL_TARGET: String(target), BOND_ACL_SID: cache.sid, NAMI_ACL_TARGET: String(target), NAMI_ACL_SID: cache.sid }, SET_EXACT_TIMEOUT);
     return isOwnerOnly(run(icacls, [String(target)]));
   } catch (_) { return false; }
 }

@@ -207,7 +207,7 @@ function queryCodex(command, envPath, spawnFn = spawn, { parentEnv = process.env
         if (m.id === 2 || m.error) finish(m.result || null);
       }
     });
-    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'nami-usage', version: '1.0.0' }, capabilities: {} } });
+    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'bond-usage', version: '1.0.0' }, capabilities: {} } });
   });
 }
 function claudeTokenFromKeychain() {

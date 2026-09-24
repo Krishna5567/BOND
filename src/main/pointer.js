@@ -26,10 +26,12 @@ const fs = require('fs');
 const path = require('path');
 const { KNOWN_AGENTS, POINTER_FILE, contextFilesFor } = require('./agents-detect.js');
 
-const START = '<!-- nami:skills start -->';
-const END = '<!-- nami:skills end -->';
+const START = '<!-- bond:skills start -->';
+const END = '<!-- bond:skills end -->';
+const LEGACY_START = '<!-- nami:skills start -->';
+const LEGACY_END = '<!-- nami:skills end -->';
 
-// Three lines, and they buy something specific: Nami never has to be right about
+// Three lines, and they buy something specific: Bond never has to be right about
 // which agents read AGENTS.md on their own. Where one already does, this is
 // harmless duplication; where it doesn't, this is the reason the skill works.
 const STUB = `# Project notes\nRead AGENTS.md — the working rules and the list of skills are there.\n`;
@@ -75,14 +77,28 @@ function oneLine(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 // ---- splicing ---------------------------------------------------------------
 
 function findMarkers(text) {
-  const starts = [];
+  let startMarker = START;
+  let endMarker = END;
+  let starts = [];
   let at = text.indexOf(START);
   while (at !== -1) { starts.push(at); at = text.indexOf(START, at + START.length); }
-  if (starts.length > 1) throw new Error('AGENTS.md has more than one Nami skills block — remove the extra one and try again.');
+  if (!starts.length) {
+    startMarker = LEGACY_START;
+    endMarker = LEGACY_END;
+    at = text.indexOf(LEGACY_START);
+    while (at !== -1) { starts.push(at); at = text.indexOf(LEGACY_START, at + LEGACY_START.length); }
+  } else {
+    let legacyAt = text.indexOf(LEGACY_START);
+    while (legacyAt !== -1) { starts.push(legacyAt); legacyAt = text.indexOf(LEGACY_START, legacyAt + LEGACY_START.length); }
+  }
+  if (starts.length > 1) throw new Error('AGENTS.md has more than one Bond skills block — remove the extra one and try again.');
   if (!starts.length) return null;
-  const end = text.indexOf(END, starts[0]);
-  if (end === -1) throw new Error('AGENTS.md has an unclosed Nami skills marker — restore or remove it and try again.');
-  return { start: starts[0], end: end + END.length };
+  let end = text.indexOf(endMarker, starts[0]);
+  if (end === -1 && endMarker === LEGACY_END) end = text.indexOf(END, starts[0]);
+  else if (end === -1 && endMarker === END) end = text.indexOf(LEGACY_END, starts[0]);
+  if (end === -1) throw new Error('AGENTS.md has an unclosed Bond skills marker — restore or remove it and try again.');
+  const chosenEnd = text.indexOf(endMarker, starts[0]) !== -1 ? endMarker : (endMarker === END ? LEGACY_END : END);
+  return { start: starts[0], end: end + chosenEnd.length };
 }
 
 // A file's line endings are its own. We render with \n and adopt whatever the

@@ -1,4 +1,4 @@
-/* Nami — "operator" theme: dark ops console, one coral accent.
+/* Bond — "operator" theme: dark ops console, one coral accent.
    Every rule is scoped under body[data-theme="operator"] so the paper theme
    (paper.css) stays byte-identical. Strategy: remap the paper token names to
    dark values, then patch the rules that hard-code paper-only literals
@@ -153,7 +153,7 @@ body[data-theme="operator"] .nami-mascot, body[data-theme="operator"] .bond-masc
   box-shadow: 0 0 8px rgba(0, 168, 107, 0.4);
   transform: translateY(-2px);
 }
-/* paper drops the tagline to Nami's baseline; mono NAMI has no hanging
+/* paper drops the tagline to Bond's baseline; mono BOND has no hanging
    lowercase, so operator keeps it centred */
 body[data-theme="operator"] .brand-sub { align-self: center; padding-bottom: 0; letter-spacing: 0.08em; }
 /* SF Mono fills its line box; the version needs a gap below it instead of

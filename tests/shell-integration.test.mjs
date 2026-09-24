@@ -1,4 +1,4 @@
-// A Windows pane telling Nami where it is. Platform and shell are parameters,
+// A Windows pane telling Bond where it is. Platform and shell are parameters,
 // so a Mac checks what a PC would be started with; what real PowerShell does
 // with it was measured in the VM through node-pty and is pinned here as text.
 import { test } from 'node:test';
@@ -33,7 +33,7 @@ test('a one-shot carries the hook in front of its command, so $? still belongs t
   assert.deepEqual(args.slice(0, 3), ['-NoLogo', '-NoExit', '-Command']);
   assert.equal(args.length, 4);
   assert.equal(args[3], `${CWD_HOOK}; ${doneSuffix('npm i -g x', PS)}`);
-  assert.ok(args[3].indexOf('npm i -g x; $namiOk = $?') > args[3].indexOf(CWD_HOOK));
+  assert.ok(args[3].indexOf('npm i -g x; $bondOk = $?') > args[3].indexOf(CWD_HOOK));
 });
 
 // No prompt is ever shown, so there is nothing to hook and nowhere to move to:
@@ -62,15 +62,15 @@ test('the hook is one line with no double quotes', () => {
 });
 
 test('the hook wraps the prompt that was there rather than replacing it', () => {
-  assert.match(CWD_HOOK, /^\$global:__namiPrompt = \$function:prompt; function global:prompt \{/);
-  assert.match(CWD_HOOK, /\$namiOut = & \$global:__namiPrompt/);
+  assert.match(CWD_HOOK, /^\$global:__bondPrompt = \$function:prompt; function global:prompt \{/);
+  assert.match(CWD_HOOK, /\$bondOut = & \$global:__bondPrompt/);
   // $? is read first and put back before the inner prompt runs: oh-my-posh and
   // starship colour themselves by it.
-  assert.ok(CWD_HOOK.indexOf('$namiOk = $global:?') < CWD_HOOK.indexOf('[Console]::Write'));
-  assert.ok(CWD_HOOK.indexOf("Write-Error 'nami' -ErrorAction Ignore") < CWD_HOOK.indexOf('& $global:__namiPrompt'));
+  assert.ok(CWD_HOOK.indexOf('$bondOk = $global:?') < CWD_HOOK.indexOf('[Console]::Write'));
+  assert.ok(CWD_HOOK.indexOf("Write-Error 'bond' -ErrorAction Ignore") < CWD_HOOK.indexOf('& $global:__bondPrompt'));
   // Only a real folder is reported. HKLM:\ and Env:\ are places too.
   assert.match(CWD_HOOK, /Provider\.Name -eq 'FileSystem'/);
-  assert.match(CWD_HOOK, /\]9;9;' \+ \$namiLoc\.ProviderPath/);
+  assert.match(CWD_HOOK, /\]9;9;' \+ \$bondLoc\.ProviderPath/);
 });
 
 test('a reported folder is read out of the stream', () => {

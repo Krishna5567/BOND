@@ -40,13 +40,13 @@ test('catalogServices never surfaces nami-browser even if it is stuffed in', () 
   assert.deepEqual(cat.map((s) => s.id), ['notion', 'gmail']);
 });
 
-test('guided seed tells the agent to register connections.json mcpServers, then Nami delivers', () => {
+test('guided seed tells the agent to register connections.json mcpServers, then Bond delivers', () => {
   const s = guidedSetupSeed(GMAIL);
   assert.match(s, /Walk me through connecting Gmail/);
   assert.match(s, /GongRzhe\/Gmail-MCP-Server/);
   assert.match(s, /connections\.json/);
   assert.match(s, /mcpServers/);
-  assert.match(s, /Nami copies it to every installed agent's own config/);
+  assert.match(s, /Bond copies it to every installed agent's own config/);
   assert.equal(s.includes('\n'), false, 'one line for the pty seeder');
   assert.doesNotMatch(s, /nami-browser/);
 });
@@ -56,7 +56,7 @@ test('custom seed uses the same master-register contract', () => {
   assert.match(s, /our internal wiki at wiki\.acme\.dev/);
   assert.match(s, /connections\.json/);
   assert.match(s, /mcpServers/);
-  assert.match(s, /Nami copies it to every installed agent's own config/);
+  assert.match(s, /Bond copies it to every installed agent's own config/);
   assert.equal(s.includes('\n'), false);
   assert.doesNotMatch(s, /nami-browser/);
 });
@@ -186,7 +186,7 @@ test('openConnect shows the catalog sheet and refreshes services', () => {
 
 // ---- install a connector from its repo --------------------------------------
 
-const KIE = { id: 'kie', name: 'Creative models', code: 'CM', kind: 'install', docs: 'https://github.com/mrdainami/kie-mcp' };
+const KIE = { id: 'kie', name: 'Creative models', code: 'CM', kind: 'install', docs: 'https://github.com/bond-ai/kie-mcp' };
 
 function installHarness(plan) {
   const calls = [];
@@ -203,8 +203,8 @@ function installHarness(plan) {
 }
 
 test('the install line comes from main, and the tile that runs it is the one the user watches', async () => {
-  const line = 'git clone https://github.com/mrdainami/kie-mcp ~/.nami/connectors/kie-mcp && cd ~/.nami/connectors/kie-mcp && npm install && npm run build';
-  const { calls, deps } = installHarness({ ok: true, command: line, dir: '~/.nami/connectors/kie-mcp', built: false, prereq: null });
+  const line = 'git clone https://github.com/bond-ai/kie-mcp ~/.bond/connectors/kie-mcp && cd ~/.bond/connectors/kie-mcp && npm install && npm run build';
+  const { calls, deps } = installHarness({ ok: true, command: line, dir: '~/.bond/connectors/kie-mcp', built: false, prereq: null });
   const res = await startConnectorInstall(deps);
   assert.deepEqual(res, { started: true });
   assert.deepEqual(calls[0], ['installPlan', { connectorId: 'kie' }]);

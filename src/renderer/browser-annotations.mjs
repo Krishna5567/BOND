@@ -1,4 +1,4 @@
-// Pending annotation content exists only in the trusted Nami renderer.
+// Pending annotation content exists only in the trusted Bond renderer.
 export function annotationBatch(notes) {
   return notes.map((n, i) => [`${i + 1}. ${n.title || 'Browser'}`, n.url,
     n.stale ? 'Snapshot — the original selection has changed.' : '',

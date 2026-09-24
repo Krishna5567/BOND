@@ -177,7 +177,7 @@ win:
   # install mode (`perMachine` only moves the same keys from HKCU to HKLM).
   #
   # build/installer.nsh does the Windows half of the Mac rule instead: it lists
-  # Nami under "Open with" for the same extensions (OpenWithProgids, and
+  # Bond under "Open with" for the same extensions (OpenWithProgids, and
   # Applications\Bond.exe\SupportedTypes) and never touches the default value,
   # so installing Bond never changes what a double-click does. The portable
   # build registers nothing, as a portable app should.

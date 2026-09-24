@@ -25,7 +25,7 @@ test('what a command needs is read off the programs it starts', () => {
 
 test('a connector install needs all three, on either shell', () => {
   for (const [platform, shell, home] of [['darwin', '/bin/zsh', '/Users/cal'], ['win32', 'powershell.exe', 'C:\\Users\\cal']]) {
-    const plan = connectorInstall({ repo: 'https://github.com/mrdainami/kie-mcp', home, platform, shell });
+    const plan = connectorInstall({ repo: 'https://github.com/bond-ai/kie-mcp', home, platform, shell });
     assert.deepEqual(needsOf(plan.steps), ['git', 'node', 'npm'], platform);
   }
 });

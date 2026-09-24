@@ -1,4 +1,4 @@
-/* Nami — the liquid-glass system: "glass" (light) + shared structure.
+/* Bond — the liquid-glass system: "glass" (light) + shared structure.
    Approved mockup: docs/reference/glass-graphite-mockup.html
 
    Layout of the system, mirroring the paper/operator pattern:
@@ -104,10 +104,12 @@ body[data-theme="glass"] {
     inset 0 -1px 0 rgba(255, 255, 255, 0.25);
   /* the theme's link colour, named so the shared body[data-glass] rules can
      reach it — graphite answers with its own */
-  --gl-link: #3763c9;
-  --nami-fill: #00A86B;
-  --nami-foam: #ffffff;
-  --nami-eye: #1d1d22;
+  --bond-fill: #00A86B;
+  --bond-foam: #ffffff;
+  --bond-eye: #1d1d22;
+  --nami-fill: var(--bond-fill);
+  --nami-foam: var(--bond-foam);
+  --nami-eye: var(--bond-eye);
 }
 /* the aurora desk — glass is only alive with light behind it */
 body[data-theme="glass"] {
@@ -218,7 +220,7 @@ body[data-glass] .nami-mascot, body[data-glass] .bond-mascot {
   transition: transform 0.45s var(--gl-pop);
 }
 /* the dot-lattice body — same silhouette, built from dots like the type */
-body[data-glass] .nami-mascot .nami-body { fill: url(#nami-dot-lattice); }
+body[data-glass] .nami-mascot .nami-body, body[data-glass] .bond-mascot .bond-body { fill: url(#nami-dot-lattice); }
 body[data-glass] .brand:hover .nami-mascot, body[data-glass] .brand:hover .bond-mascot { transform: translateY(-3px) rotate(-4deg); }
 body[data-glass] .rail-head .title { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 body[data-glass] .lane-empty .big { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; }

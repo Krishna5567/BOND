@@ -12,7 +12,7 @@ const MAC_SHEET = [
     icon: 'link', title: 'Links & files',
     rows: [
       ['Open a web link', ['⌘', 'click'], 'In session output · opens your browser'],
-      ['Open a file in Nami', ['⌘', 'click'], 'In session output · opens the file here'],
+      ['Open a file in Bond', ['⌘', 'click'], 'In session output · opens the file here'],
       ['Reveal a file in Finder', ['⌥', '⌘', 'click']],
       ['Reveal a folder in Finder', ['⌘', 'click']],
       ['Open link actions', ['Right-click'], 'Open, copy, or reveal — depending on the link'],
@@ -56,7 +56,7 @@ const keysFor = (platform, label) => rowsOf(platform).find((r) => r[0] === label
 
 test('the Mac sheet is the one that shipped', () => {
   assert.deepEqual(shortcutGroups('darwin'), MAC_SHEET);
-  assert.equal(openOutputCopy('darwin'), 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Nami.');
+  assert.equal(openOutputCopy('darwin'), 'Hold Command (⌘) and click a link or file path in a session. Web links open in your browser. Files open here in Bond.');
 });
 
 test('what the app imports under plain node is the Mac sheet', () => {

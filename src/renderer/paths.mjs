@@ -10,7 +10,7 @@
 //
 // Same bargain as src/main/platform.js: pure, and platform is always a
 // parameter. It defaults to the platform the app is really on, which the
-// preload hands over as `dainami.platform`; under plain node there is no such
+// preload hands over as `(bond || dainami).platform`; under plain node there is no such
 // thing, the default is '' and every function takes its POSIX column. That is
 // what lets one machine test both columns, and what keeps the POSIX tests
 // honest when they run on a Windows box.
@@ -24,7 +24,8 @@ const WIN = 'win32';
 
 export function currentPlatform() {
   const g = globalThis;
-  if (g.dainami && g.dainami.platform) return g.dainami.platform;
+  const bridge = g.bond || g.dainami;
+  if (bridge && bridge.platform) return bridge.platform;
   const body = g.document && g.document.body;
   return (body && body.dataset && body.dataset.platform) || '';
 }

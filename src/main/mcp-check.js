@@ -58,7 +58,7 @@ function checkServer({ command, args = [], env = {}, spawnFn = spawn, timeoutMs 
         }
       }
     });
-    initId = send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'nami', version: '1.0' } });
+    initId = send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'bond', version: '1.0' } });
   });
 }
 module.exports = { checkServer };

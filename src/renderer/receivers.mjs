@@ -1,4 +1,4 @@
-// Who Nami actually writes to, by kind. The create sheet and coverage line
+// Who Bond actually writes to, by kind. The create sheet and coverage line
 // read this rather than "every installed CLI". Keep it in step with:
 //   agent → copyTargets in src/main/agent-master.js
 //   skill → contextFile on KNOWN_AGENTS in src/main/agents-detect.js

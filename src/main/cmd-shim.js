@@ -64,7 +64,7 @@ function shimSafeArgs(args, program, platform = process.platform) {
 // Holding a first message back is safe, and it is not what a Mac does: Codex and
 // OpenCode only come from npm, so on Windows they were never once handed one.
 // But a shim is a few generated lines that find node and run a single script,
-// and Nami can do that itself. Started as `node.exe codex.js …`, the program is
+// and Bond can do that itself. Started as `node.exe codex.js …`, the program is
 // a real .exe, the arguments go straight to it, and cmd.exe never sees them.
 //
 // shimTarget reads the text of a .cmd and says what it runs, or null. It is

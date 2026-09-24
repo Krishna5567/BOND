@@ -27,7 +27,7 @@ export function isGenericTitle(title, agentNames = []) {
 //   prompt   guessed from the first line typed into the tile (feedNameDraft)
 //   flow     chosen by a flow that opened the tile ("build: dark mode")
 //   agent    claude's own name, read back out of its transcript
-//   user     renamed by hand, here in nami
+//   user     renamed by hand, here in bond
 const TITLE_RANK = { generic: 0, prompt: 1, flow: 2, agent: 2, user: 3 };
 
 export function titleRank(source) {
@@ -49,7 +49,7 @@ export function adoptTitle(current, incoming) {
   return { title, source: incoming.source };
 }
 
-// A tile whose name nami picked deliberately pushes that name down into claude
+// A tile whose name bond picked deliberately pushes that name down into claude
 // (`--name`), so the session reads the same in `claude --resume`, in
 // `claude agents`, and on your phone. A guessed name is never pushed: it is
 // usually worse than the one claude works out for itself.

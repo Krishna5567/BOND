@@ -1,4 +1,4 @@
-// Everything Nami runs or reads on behalf of an agent CLI, asked about as
+// Everything Bond runs or reads on behalf of an agent CLI, asked about as
 // Windows. The registry was written on a Mac, so each entry is a zsh line and a
 // `~/` path until something says otherwise; these tests are that something.
 import { test } from 'node:test';
@@ -35,7 +35,7 @@ function commandsFor(agent, platform) {
 // errors there and stop the whole line before any of it runs; there is no bash
 // and no curl that means curl (it is an alias for Invoke-WebRequest, with other
 // arguments); and nothing expands a `~/` handed to a program.
-test('windows: no command Nami runs is a zsh line', () => {
+test('windows: no command Bond runs is a zsh line', () => {
   let walked = 0;
   for (const agent of KNOWN_AGENTS) {
     for (const [what, cmd] of commandsFor(agent, WIN)) {

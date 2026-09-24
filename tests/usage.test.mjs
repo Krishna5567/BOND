@@ -91,8 +91,8 @@ test('Gemini remainingFraction of 0 is a real empty window, not unknown', () => 
 });
 
 test('readUsage merges Claude local state with the status-line feed, named as the CLI names them', async () => {
-  const home = tmpDir('nami-usage-home-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-home-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({
     cachedUsageUtilization: {
       fetchedAtMs: 1000000,
@@ -113,8 +113,8 @@ test('readUsage merges Claude local state with the status-line feed, named as th
 });
 
 test('readUsage reports Gemini local quota from a fixture file', async () => {
-  const home = tmpDir('nami-usage-gemini-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-gemini-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.mkdirSync(path.join(home, '.gemini'));
   fs.writeFileSync(path.join(home, '.gemini', 'quota.json'), JSON.stringify({
     buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.55, resetTime: '2026-09-10T00:00:00Z' }],
@@ -145,8 +145,8 @@ test('Grok billing percent becomes remaining and never invents 0 from a missing 
 });
 
 test('Grok billing request uses the CLI auth header and user id', async () => {
-  const home = tmpDir('nami-usage-grok-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-grok-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.mkdirSync(path.join(home, '.grok'));
   fs.writeFileSync(path.join(home, '.grok', 'auth.json'), JSON.stringify({
     'https://auth.x.ai::client': { key: 'tok', user_id: 'user-1', create_time: '2026-01-01T00:00:00Z' },
@@ -166,8 +166,8 @@ test('Grok billing request uses the CLI auth header and user id', async () => {
 });
 
 test('Claude oauth usage sends the Claude Code user agent', async () => {
-  const home = tmpDir('nami-usage-claude-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-claude-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.mkdirSync(path.join(home, '.claude'));
   fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok' } }));
   const calls = [];
@@ -184,8 +184,8 @@ test('Claude oauth usage sends the Claude Code user agent', async () => {
 });
 
 test('Gemini quota request sends the Code Assist project', async () => {
-  const home = tmpDir('nami-usage-gemini-live-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-gemini-live-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.mkdirSync(path.join(home, '.gemini'));
   fs.writeFileSync(path.join(home, '.gemini', 'oauth_creds.json'), JSON.stringify({ access_token: 'tok', refresh_token: 'rtok', expiry_date: Date.now() + 60_000 }));
   const bodies = [];
@@ -204,8 +204,8 @@ test('Gemini quota request sends the Code Assist project', async () => {
 });
 
 test('signed-in CLIs without a live window do not ask to sign in', async () => {
-  const home = tmpDir('nami-usage-signed-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-signed-');
+  const directory = tmpDir('bond-usage-feeds-');
   fs.mkdirSync(path.join(home, '.grok'));
   fs.writeFileSync(path.join(home, '.grok', 'auth.json'), JSON.stringify({ x: { key: 'tok', create_time: '2026-01-01' } }));
   fs.mkdirSync(path.join(home, '.claude'));
@@ -232,8 +232,8 @@ test('signed-in CLIs without a live window do not ask to sign in', async () => {
 });
 
 test('unavailable CLIs ask to sign in and never invent 0', async () => {
-  const home = tmpDir('nami-usage-empty-');
-  const directory = tmpDir('nami-usage-feeds-');
+  const home = tmpDir('bond-usage-empty-');
+  const directory = tmpDir('bond-usage-feeds-');
   const result = await readUsage({
     agents: [
       { id: 'grok', name: 'Grok', found: true, path: '/bin/grok' },

@@ -38,7 +38,7 @@ const MUST_SHIP = [
 ];
 
 function bundles() {
-  return [['release', 'Nami.app'], ['release-review', 'Nami Review.app']].flatMap(([directory, name]) => {
+  return [['release', 'Bond.app'], ['release', 'Nami.app'], ['release-review', 'Bond Review.app'], ['release-review', 'Nami Review.app']].flatMap(([directory, name]) => {
     const rel = path.join(ROOT, directory);
     if (!fs.existsSync(rel)) return [];
     return fs.readdirSync(rel)

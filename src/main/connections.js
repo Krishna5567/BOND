@@ -2,10 +2,10 @@
 // installed agent's own config. Pure fs through an injectable io — the
 // library.js discipline — so every decision below is unit-testable.
 //
-// The master file IS the standard `mcpServers` shape, not a Nami format:
+// The master file IS the standard `mcpServers` shape, not a Bond format:
 // Claude, Cursor, Gemini and Kimi read that block word for word, so delivery to
 // them is a plain merge, and the file keeps working by copy-paste even without
-// Nami. Only OpenCode (its own JSON dialect) and Codex (TOML) need translating;
+// Bond. Only OpenCode (its own JSON dialect) and Codex (TOML) need translating;
 // Hermes is detected but not written — its YAML is hand-owned and its CLI is
 // interactive, so honesty ("add it in Hermes") beats a risky write.
 //
@@ -36,7 +36,7 @@ function validServiceId(id) {
 // Per-session browser MCP (bearer URL). Not a catalog connection; never a
 // master key, never delivered into agent notebooks.
 function reservedServiceId(id) {
-  return id === 'nami-browser';
+  return id === 'bond-browser' || id === 'nami-browser';
 }
 
 function publicMasters(masters) {
@@ -56,13 +56,16 @@ function writeJson(file, obj, io) { io.write(file, JSON.stringify(obj, null, 2) 
 
 // ---- masters ----------------------------------------------------------------
 
-function masterPath({ scope, projectPath, homeDir }) {
+function masterPath({ scope, projectPath, homeDir, io = fsIo }) {
   if (scope === 'project') return projectPath ? path.join(projectPath, 'connections.json') : null;
-  return path.join(homeDir, '.nami', 'connections.json');
+  const bondDir = path.join(homeDir, '.bond', 'connections.json');
+  const namiDir = path.join(homeDir, '.nami', 'connections.json');
+  if (io && !io.exists(bondDir) && io.exists(namiDir)) return namiDir;
+  return bondDir;
 }
 
 function readMaster({ scope, projectPath, homeDir, io = fsIo }) {
-  const file = masterPath({ scope, projectPath, homeDir });
+  const file = masterPath({ scope, projectPath, homeDir, io });
   if (!file) return {};
   const doc = readJson(file, io);
   return publicMasters((doc && doc.mcpServers) || {});
@@ -81,8 +84,8 @@ function guardIgnore({ projectPath, io }) {
 }
 
 function upsertMaster({ scope, projectPath, homeDir, id, entry, io = fsIo }) {
-  if (reservedServiceId(id)) return { ok: false, error: 'Nami Browser is not a catalog connection.' };
-  const file = masterPath({ scope, projectPath, homeDir });
+  if (reservedServiceId(id)) return { ok: false, error: 'Bond Browser is not a catalog connection.' };
+  const file = masterPath({ scope, projectPath, homeDir, io });
   if (!file) return { ok: false, error: 'Open a folder first — a project connection lives in the project.' };
   const doc = readJson(file, io) || {};
   doc.mcpServers = publicMasters(doc.mcpServers || {});
@@ -93,7 +96,7 @@ function upsertMaster({ scope, projectPath, homeDir, id, entry, io = fsIo }) {
 }
 
 function removeMaster({ scope, projectPath, homeDir, id, io = fsIo }) {
-  const file = masterPath({ scope, projectPath, homeDir });
+  const file = masterPath({ scope, projectPath, homeDir, io });
   const doc = file && readJson(file, io);
   if (!doc || !doc.mcpServers || !doc.mcpServers[id]) return { ok: false, error: 'not in the master' };
   delete doc.mcpServers[id];
@@ -118,8 +121,10 @@ function toOpencode(entry) {
 // Rendering only these three shapes (command/args, env table, url) keeps this a
 // formatter, not a TOML library — and everything it emits is round-trippable.
 
-const CODEX_START = '# nami:connections start';
-const CODEX_END = '# nami:connections end';
+const CODEX_START = '# bond:connections start';
+const CODEX_END = '# bond:connections end';
+const LEGACY_CODEX_START = '# nami:connections start';
+const LEGACY_CODEX_END = '# nami:connections end';
 
 function tomlStr(v) { return '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'; }
 
@@ -149,10 +154,12 @@ function codexBlock(masters, { skip = new Set() } = {}) {
 // Codex, which would break every server they have, not just ours.
 function writeCodexBlock({ file, masters, io = fsIo }) {
   const cur = io.exists(file) ? io.read(file) : '';
-  const starts = cur.split(CODEX_START).length - 1;
+  const startTag = cur.includes(CODEX_START) ? CODEX_START : (cur.includes(LEGACY_CODEX_START) ? LEGACY_CODEX_START : CODEX_START);
+  const endTag = startTag === LEGACY_CODEX_START ? LEGACY_CODEX_END : CODEX_END;
+  const starts = (cur.split(CODEX_START).length - 1) + (cur.split(LEGACY_CODEX_START).length - 1);
   if (starts > 1) return { ok: false, error: 'two start markers — refusing to guess which is live' };
-  const before = starts ? cur.slice(0, cur.indexOf(CODEX_START)) : cur;
-  const after = starts ? cur.slice(cur.indexOf(CODEX_END) + CODEX_END.length) : '';
+  const before = starts ? cur.slice(0, cur.indexOf(startTag)) : cur;
+  const after = starts ? cur.slice(cur.indexOf(endTag) + endTag.length) : '';
   const outside = before + after;
   const skip = new Set(Object.keys(masters).filter((id) => presentInToml(outside, id)));
   const body = codexBlock(masters, { skip });

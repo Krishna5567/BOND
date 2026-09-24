@@ -17,22 +17,23 @@ function blankMode(settings) {
   const mode = settings?.browserNewTab;
   return mode === 'dark' || mode === 'light' ? mode : 'system';
 }
-function namiThemeIsDark(settings) {
+function bondThemeIsDark(settings) {
   const theme = settings?.theme || '';
   return theme === 'operator' || theme === 'graphite' || theme === 'dusk';
 }
-// "System" means Nami's own theme. It used to fall through to the Mac's dark
-// mode when Nami was light, which on a light desk over a dark Mac gave a dark
+const namiThemeIsDark = bondThemeIsDark;
+// "System" means Bond's own theme. It used to fall through to the Mac's dark
+// mode when Bond was light, which on a light desk over a dark Mac gave a dark
 // new tab, then a dark website, then a light desk again — the flicker people
-// reported. Nami is the system the tab lives in.
+// reported. Bond is the system the tab lives in.
 function blankIsDark(mode, settings) {
   if (mode === 'dark') return true;
   if (mode === 'light') return false;
-  return namiThemeIsDark(settings);
+  return bondThemeIsDark(settings);
 }
 // Websites read prefers-color-scheme from Chromium, which reads it from the
 // Mac unless told otherwise. Tell it, so a page renders in the same mode as
-// the desk around it. Nami's own window styles itself by data-theme and never
+// the desk around it. Bond's own window styles itself by data-theme and never
 // consults this, so nothing there moves.
 function syncNativeTheme(settings) {
   try { require('electron').nativeTheme.themeSource = blankIsDark(blankMode(settings), settings) ? 'dark' : 'light'; } catch {}
@@ -118,7 +119,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   const send = (e, type, data) => { if (type !== 'closed' && views.get(e.id) !== e) return; if (!e.window.isDestroyed() && !e.window.webContents.isDestroyed()) e.window.webContents.send('browser:event', { id: e.id, type, ...data }); };
   const mainWindow = (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
-    if (!w || event.sender !== w.webContents || event.senderFrame !== w.webContents.mainFrame) throw new Error('Browser action is not from Nami.');
+    if (!w || event.sender !== w.webContents || event.senderFrame !== w.webContents.mainFrame) throw new Error('Browser action is not from Bond.');
     return w;
   };
   const find = (w, id) => { const e = views.get(id); if (!e || e.window !== w) throw new Error('Browser view is no longer available.'); return e; };
@@ -153,12 +154,14 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       try { mode = profiles.get(e?.profileId || 'default').downloadMode === 'auto' ? 'auto' : 'ask'; } catch {}
       if (mode === 'auto') item.setSavePath(uniqueDownloadPath(app.getPath('downloads'), item.getFilename()));
     });
-    record.session.protocol.handle('nami-doc', async (request) => {
+    const docHandler = async (request) => {
       const p = parseDocUrl(request.url);
       const file = p && record.roots.has(p.root) && resolveWithinRoot(p.root, p.rel);
       if (!file) return new Response('Not found', { status: 404 });
       return serveDocFile(file, request, documentPolicy(p.root));
-    });
+    };
+    try { record.session.protocol.handle('bond-doc', docHandler); } catch {}
+    try { record.session.protocol.handle('nami-doc', docHandler); } catch {}
     partitions.set(key, record); return record;
   }
   async function create(w, args, { pendingCount = 0, replacing = null, rememberProfile = false } = {}) {
@@ -252,11 +255,11 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       w.contentView.addChildView(view);
       if (replacing) {
         if (views.get(args.id) !== replacing) throw new Error('The browser tab changed. Choose its profile again.');
-        if (w.isDestroyed()) throw new Error('The Nami window has closed.');
+        if (w.isDestroyed()) throw new Error('The Bond window has closed.');
         if (rememberProfile) profiles.setDefault(profileId);
         await remove(replacing.id, { notify: false, confirmed: true });
       }
-      if (w.isDestroyed()) throw new Error('The Nami window has closed.');
+      if (w.isDestroyed()) throw new Error('The Bond window has closed.');
       views.set(e.id, e);
       if (url === 'about:blank' && !args.filePath) {
         await wc.loadFile(WELCOME).catch((error) => send(e, 'error', { error: error.message }));
@@ -270,7 +273,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         if (view.webContents && !view.webContents.isDestroyed()) view.webContents.close();
       }
       if (record.local) {
-        record.roots.clear(); record.session.protocol.unhandle('nami-doc'); partitions.delete(record.key);
+        record.roots.clear(); record.session.protocol.unhandle('bond-doc'); record.session.protocol.unhandle('nami-doc'); partitions.delete(record.key);
         await record.session.clearStorageData();
       }
       throw error;
@@ -278,13 +281,13 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
   }
   async function remove(id, { notify = true, confirmed = false } = {}) {
     const e = views.get(id); if (!e) return;
-    if (e.pendingCount && !confirmed) throw new Error('This tab has pending annotations. Review or discard them in Nami before closing the tab.');
+    if (e.pendingCount && !confirmed) throw new Error('This tab has pending annotations. Review or discard them in Bond before closing the tab.');
     views.delete(id);
     for (const s of access.sessions.values()) s.views.delete(id);
     if (notify) send(e, 'closed', {});
     if (!e.window.isDestroyed()) e.window.contentView.removeChildView(e.view);
     if (!e.view.webContents.isDestroyed()) e.view.webContents.close();
-    if (e.record.local) { e.record.roots.clear(); e.record.session.protocol.unhandle('nami-doc'); partitions.delete(e.record.key); await e.record.session.clearStorageData(); }
+    if (e.record.local) { e.record.roots.clear(); e.record.session.protocol.unhandle('bond-doc'); e.record.session.protocol.unhandle('nami-doc'); partitions.delete(e.record.key); await e.record.session.clearStorageData(); }
   }
   const guarded = (channel, action) => ipcMain.handle(channel, async (ev, args = {}) => {
     try {
@@ -299,7 +302,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
       if (!serialized) return { ok: true, ...await action(w, args) };
       if (identityChange) pendingIdentityChanges++;
       const run = mutations.then(() => {
-        if (w.isDestroyed() || ev.sender.isDestroyed()) throw new Error('The Nami window has closed.');
+        if (w.isDestroyed() || ev.sender.isDestroyed()) throw new Error('The Bond window has closed.');
         return action(w, args);
       }).finally(() => { if (identityChange) pendingIdentityChanges--; });
       mutations = run.catch(() => {});
@@ -361,7 +364,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     }
     else if (action === 'capture') {
       const picture = await wc.capturePage();
-      const result = await dialog.showSaveDialog(w, { title: 'Save browser screenshot', defaultPath: 'nami-browser.png', filters: [{ name: 'PNG image', extensions: ['png'] }] });
+      const result = await dialog.showSaveDialog(w, { title: 'Save browser screenshot', defaultPath: 'bond-browser.png', filters: [{ name: 'PNG image', extensions: ['png'] }] });
       if (!result.canceled && result.filePath) fs.writeFileSync(result.filePath, picture.toPNG());
       return { canceled: result.canceled };
     }
@@ -398,7 +401,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     // platform cannot copy is refused in plain words before a source is read.
     const refusal = importRefusal(args);
     if (refusal) throw new Error(refusal);
-    if (typeof args.profileId !== 'string' || !args.profileId) throw new Error('Choose a destination Nami profile before importing.');
+    if (typeof args.profileId !== 'string' || !args.profileId) throw new Error('Choose a destination Bond profile before importing.');
     profiles.get(args.profileId);
     selectChromiumImportSource(detectChromiumProfiles(), args.sourceId);
     if (importBlocks.has(args.profileId) || profileLocks.has(args.profileId)) throw new Error('Browser profile is being updated.');
@@ -421,7 +424,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
     // Imports must name their destination before reading a source, asking
     // Keychain or opening a CSV dialog. A missing choice is never Personal.
     const importing = ['import-browser', 'import-cookies', 'import-passwords'].includes(action);
-    if (importing && (typeof args.profileId !== 'string' || !args.profileId)) throw new Error('Choose a destination Nami profile before importing.');
+    if (importing && (typeof args.profileId !== 'string' || !args.profileId)) throw new Error('Choose a destination Bond profile before importing.');
     const profileId = args.profileId || profiles.defaultId();
     if (importing) profiles.get(profileId);
     let output = {};
@@ -449,7 +452,7 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
         send(created, 'profile-changed', { profileId });
       });
     } else if (action === 'clear' || action === 'remove') {
-      if (args.confirmed !== true) throw new Error('Confirm clearing this Nami browser data first.');
+      if (args.confirmed !== true) throw new Error('Confirm clearing this Bond browser data first.');
       if (action === 'remove' && profiles.list().length === 1) throw new Error('Keep at least one browser profile.');
       importBlocks.add(profileId);
       try {
@@ -465,7 +468,12 @@ function wireBrowserViews(ipcMain, { readSettings, writeSettings }) {
           await record.session.clearAuthCache(); await record.session.cookies.flushStore(); record.roots.clear();
         }
         if (action === 'remove' || args.credentials) profiles.clearCredentials(profileId);
-        if (action === 'remove') { profiles.remove(profileId); record.session.protocol.unhandle('nami-doc'); partitions.delete(profileId); }
+        if (action === 'remove') {
+          profiles.remove(profileId);
+          try { record.session.protocol.unhandle('bond-doc'); } catch {}
+          try { record.session.protocol.unhandle('nami-doc'); } catch {}
+          partitions.delete(profileId);
+        }
       });
       } finally { importBlocks.delete(profileId); }
     } else if (action === 'import-passwords') {

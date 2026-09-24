@@ -17,7 +17,8 @@ function render(data) {
   const restore = key && surface.querySelector('[data-overlay-node="' + key + '"]');
   if (restore) { if(pendingValue!==null)restore.value=pendingValue; restore.focus(); if (caret && restore.setSelectionRange) restore.setSelectionRange(...caret); }
 }
-window.namiOverlay.onRender(render);
+const overlayApi = window.bondOverlay || window.namiOverlay;
+overlayApi.onRender(render);
 document.addEventListener('compositionstart',()=>{composing=true;});
 document.addEventListener('compositionend',()=>{composing=false;setTimeout(()=>{if(deferred){const data=deferred;deferred=null;render(data);}},0);});
 for (const type of ['click','input','change','keydown','focusin','submit']) document.addEventListener(type, event => {
@@ -26,5 +27,5 @@ for (const type of ['click','input','change','keydown','focusin','submit']) docu
   if(type==='submit')event.preventDefault();
   if(type==='keydown' && (event.key==='ArrowDown'||event.key==='ArrowUp') && target.closest('[role=menu]')){event.preventDefault();const nodes=[...surface.querySelectorAll('[role=menuitem]')],i=nodes.indexOf(target);nodes[(i+(event.key==='ArrowDown'?1:nodes.length-1))%nodes.length]?.focus();return;}
   if(type==='input')sequence++;
-  window.namiOverlay.input({ version, sequence, type: type === 'focusin' ? 'focus' : type, target: Number(target.dataset.overlayNode), value: target.value, checked: target.checked, key: event.key, shiftKey: event.shiftKey, isComposing:event.isComposing, keyCode:event.keyCode });
+  overlayApi.input({ version, sequence, type: type === 'focusin' ? 'focus' : type, target: Number(target.dataset.overlayNode), value: target.value, checked: target.checked, key: event.key, shiftKey: event.shiftKey, isComposing:event.isComposing, keyCode:event.keyCode });
 });

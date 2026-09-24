@@ -1,4 +1,4 @@
-/* Nami — "graphite": the liquid-glass system in dark grey (not black).
+/* Bond — "graphite": the liquid-glass system in dark grey (not black).
    Only a token remap lives here — the entire structural system (slabs, physics,
    dot type, cursors, wells) comes from the body[data-glass] rules in
    theme-glass.css. Spec: 2026-08-09-glass-graphite-themes-design.md */
@@ -93,9 +93,12 @@ body[data-theme="graphite"] {
      reach it — the whole quick start panel comes from there, this file adds
      no .qs- rule of its own */
   --gl-link: #6f9dff;
-  --nami-fill: #00A86B;
-  --nami-foam: #ffffff;
-  --nami-eye: #ececf1;
+  --bond-fill: #00A86B;
+  --bond-foam: #ffffff;
+  --bond-eye: #ececf1;
+  --nami-fill: var(--bond-fill);
+  --nami-foam: var(--bond-foam);
+  --nami-eye: var(--bond-eye);
 }
 /* the ember desk — the aurora dimmed onto dark grey */
 body[data-theme="graphite"] {

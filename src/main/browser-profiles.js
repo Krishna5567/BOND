@@ -213,7 +213,7 @@ function readSqliteRows(file, sql) {
       return statement.all().map(normaliseRow);
     } finally { db.close(); }
   };
-  const tmp = file + '.nami-read-' + process.pid;
+  const tmp = file + '.bond-read-' + process.pid;
   try {
     fs.copyFileSync(file, tmp);
     for (const extra of ['-wal', '-shm']) {

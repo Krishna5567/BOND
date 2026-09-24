@@ -35,7 +35,7 @@ export function shortHome(p, home = known, platform = currentPlatform()) {
 // The folder a file:// URL names, as a path: decoded, in the platform's own
 // spelling, no trailing separator. The demo and screenshot scenes start a chat
 // in the folder above the app, and used to take it from URL.pathname — which is
-// /C:/nami/ on Windows, a path nothing can open.
+// /C:/bond/ on Windows, a path nothing can open.
 export function folderOfUrl(url, platform = currentPlatform()) {
   const p = decodeURIComponent(fromFileUrl(url, platform));
   return platform === 'win32' ? p.replace(/\\$/, '') : p.replace(/\/$/, '');

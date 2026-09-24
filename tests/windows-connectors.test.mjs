@@ -51,13 +51,13 @@ test('on a PC the one client that cannot start npx is handed cmd /c npx', () => 
 });
 
 test('a program that is not an npm launcher is never wrapped, on any machine', () => {
-  const masters = { kie: { command: 'node', args: ['C:\\Users\\cal\\.nami\\connectors\\kie-mcp\\dist\\index.js'] }, far: { url: 'https://mcp.example.com/mcp' } };
+  const masters = { kie: { command: 'node', args: ['C:\\Users\\cal\\.bond\\connectors\\kie-mcp\\dist\\index.js'] }, far: { url: 'https://mcp.example.com/mcp' } };
   const cursor = deliveryPlan({ masters, scope: 'project', agentIds: ['cursor'], projectPath: '/proj', homeDir: '/home/u', platform: 'win32' })[0];
   assert.deepEqual(cursor.entries, masters);
 });
 
 test('the built-in npx recipes are one spelling on every machine', () => {
-  const values = { token: 't', folder: '/Users/x/Sites', installDir: '/Users/x/.nami/connectors/kie-mcp' };
+  const values = { token: 't', folder: '/Users/x/Sites', installDir: '/Users/x/.bond/connectors/kie-mcp' };
   for (const s of KNOWN_SERVICES.filter((x) => x.kind !== 'install')) {
     assert.deepEqual(s.entry(values, 'win32'), s.entry(values, 'darwin'), s.id);
     assert.equal(s.entry(values, 'win32').command, 'npx', s.id);
@@ -66,9 +66,9 @@ test('the built-in npx recipes are one spelling on every machine', () => {
 
 test('the installed connector is pointed at with the path its own machine uses', () => {
   const kie = serviceById('kie');
-  assert.deepEqual(kie.entry({ token: 'k', installDir: '/Users/x/.nami/connectors/kie-mcp' }, 'darwin').args, ['/Users/x/.nami/connectors/kie-mcp/dist/index.js']);
-  assert.deepEqual(kie.entry({ token: 'k', installDir: 'C:\\Users\\x\\.nami\\connectors\\kie-mcp' }, 'win32').args, ['C:\\Users\\x\\.nami\\connectors\\kie-mcp\\dist\\index.js']);
+  assert.deepEqual(kie.entry({ token: 'k', installDir: '/Users/x/.bond/connectors/kie-mcp' }, 'darwin').args, ['/Users/x/.bond/connectors/kie-mcp/dist/index.js']);
+  assert.deepEqual(kie.entry({ token: 'k', installDir: 'C:\\Users\\x\\.bond\\connectors\\kie-mcp' }, 'win32').args, ['C:\\Users\\x\\.bond\\connectors\\kie-mcp\\dist\\index.js']);
   // main expands a leading ~ with os.homedir(), which leaves the tail in slashes
-  assert.deepEqual(kie.entry({ token: 'k', installDir: 'C:\\Users\\x/.nami/connectors/kie-mcp' }, 'win32').args, ['C:\\Users\\x\\.nami\\connectors\\kie-mcp\\dist\\index.js']);
+  assert.deepEqual(kie.entry({ token: 'k', installDir: 'C:\\Users\\x/.bond/connectors/kie-mcp' }, 'win32').args, ['C:\\Users\\x\\.bond\\connectors\\kie-mcp\\dist\\index.js']);
   assert.deepEqual(kie.opencodeEntry({ token: 'k', installDir: 'C:\\Users\\x\\c' }, 'win32').command, ['node', 'C:\\Users\\x\\c\\dist\\index.js']);
 });

@@ -16,7 +16,7 @@ function tmpDir(prefix) {
 }
 
 function claudeHome(utilization, fetchedAtMs) {
-  const home = tmpDir('nami-fidelity-home-');
+  const home = tmpDir('bond-fidelity-home-');
   fs.mkdirSync(path.join(home, '.claude'));
   fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok' } }));
   fs.writeFileSync(path.join(home, '.claude', 'usage-limits.json'), JSON.stringify({ cachedUsageUtilization: { fetchedAtMs, utilization } }));
@@ -49,7 +49,7 @@ test('local and account reports merge, and the fresher report wins a shared wind
   const home = claudeHome({ five_hour: { utilization: 90, resets_at: NOW + 3600_000 } }, NOW - MINUTE);
   const result = await readUsage({
     agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
-    directory: tmpDir('nami-fidelity-feeds-'), home, now: NOW,
+    directory: tmpDir('bond-fidelity-feeds-'), home, now: NOW,
     fetchFn: accountFetch({
       five_hour: { used_percentage: 20, resets_at: '2030-01-01T00:00:00Z' },
       seven_day_opus: { used_percentage: 30, resets_at: '2030-01-08T00:00:00Z' },
@@ -76,7 +76,7 @@ test('a stale local window still shows a number when the account has a fresh one
   const home = claudeHome({ five_hour: { utilization: 90, resets_at: NOW + 3600_000 } }, NOW - 40 * MINUTE);
   const result = await readUsage({
     agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
-    directory: tmpDir('nami-fidelity-feeds-'), home, now: NOW,
+    directory: tmpDir('bond-fidelity-feeds-'), home, now: NOW,
     fetchFn: accountFetch({ five_hour: { used_percentage: 25, resets_at: '2030-01-01T00:00:00Z' } }),
   });
   assert.equal(result.accounts.length, 1);
@@ -85,13 +85,13 @@ test('a stale local window still shows a number when the account has a fresh one
 });
 
 test('a Claude config too large to scan says so instead of reporting nothing', async () => {
-  const home = tmpDir('nami-fidelity-big-');
+  const home = tmpDir('bond-fidelity-big-');
   const padding = Object.fromEntries(Array.from({ length: 900 }, (_, i) => ['project-' + i, 'x'.repeat(80)]));
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ ...padding, cachedUsageUtilization: { fetchedAtMs: NOW, utilization: { five_hour: { utilization: 10 } } } }));
   assert.ok(fs.statSync(path.join(home, '.claude.json')).size >= 64000);
   const result = await readUsage({
     agents: [{ id: 'claude', name: 'Claude Code', found: true, path: '/bin/claude' }],
-    directory: tmpDir('nami-fidelity-feeds-'), home, now: NOW,
+    directory: tmpDir('bond-fidelity-feeds-'), home, now: NOW,
   });
   assert.equal(result.accounts.length, 1);
   assert.equal(result.accounts[0].status, 'unavailable');

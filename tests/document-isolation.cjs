@@ -32,7 +32,7 @@ app.whenReady().then(async () => {
     const foreign = new BrowserWindow({ show: false, webPreferences: { preload: path.resolve(__dirname, '../src/main/preload.js'), sandbox: true, contextIsolation: true } });
     await foreign.loadURL('data:text/html,<title>Foreign fixture</title>');
     for (const call of ['dainami.boot()', 'dainami.browserStatus()', `dainami.readFile(${JSON.stringify(path.join(outside, 'private.html'))})`]) {
-      await assert.rejects(foreign.webContents.executeJavaScript(call), /only available from Nami/);
+      await assert.rejects(foreign.webContents.executeJavaScript(call), /only available from Bond/);
     }
     foreign.destroy();
     console.log('PASS: real saved HTML preview runs its own assets and blocks another folder, scripts and app bridge.');

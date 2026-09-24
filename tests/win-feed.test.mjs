@@ -20,8 +20,8 @@ import { mergeFeeds, checkFeed, mergeFolders } from '../scripts/win-feed.mjs';
 
 const feed = (arch, over = {}) => ({
   version: '0.6.0',
-  files: [{ url: `Nami-Setup-${arch}.exe`, sha512: `hash-of-${arch}`, size: arch === 'x64' ? 111 : 222 }],
-  path: `Nami-Setup-${arch}.exe`,
+  files: [{ url: `Bond-Setup-${arch}.exe`, sha512: `hash-of-${arch}`, size: arch === 'x64' ? 111 : 222 }],
+  path: `Bond-Setup-${arch}.exe`,
   sha512: `hash-of-${arch}`,
   releaseDate: arch === 'x64' ? '2026-09-21T10:00:00.000Z' : '2026-09-21T10:07:00.000Z',
   ...over,
@@ -30,8 +30,8 @@ const feed = (arch, over = {}) => ({
 test('both installers are listed, each with the numbers its own build wrote', () => {
   const out = mergeFeeds([feed('arm64'), feed('x64')]);
   assert.deepEqual(out.files, [
-    { url: 'Nami-Setup-x64.exe', sha512: 'hash-of-x64', size: 111 },
-    { url: 'Nami-Setup-arm64.exe', sha512: 'hash-of-arm64', size: 222 },
+    { url: 'Bond-Setup-x64.exe', sha512: 'hash-of-x64', size: 111 },
+    { url: 'Bond-Setup-arm64.exe', sha512: 'hash-of-arm64', size: 222 },
   ]);
   assert.equal(out.version, '0.6.0');
 });
@@ -40,7 +40,7 @@ test('the top-level pair is the x64 installer, whichever order the builds finish
   // An updater too old to read `files` reads this pair, and a PC that old is x64.
   for (const order of [[feed('x64'), feed('arm64')], [feed('arm64'), feed('x64')]]) {
     const out = mergeFeeds(order);
-    assert.equal(out.path, 'Nami-Setup-x64.exe');
+    assert.equal(out.path, 'Bond-Setup-x64.exe');
     assert.equal(out.sha512, 'hash-of-x64');
   }
 });
@@ -60,7 +60,7 @@ test('a missing arch stops the merge rather than shipping half a feed', () => {
 
 test('a feed that names anything but one setup installer is refused', () => {
   assert.throws(() => mergeFeeds([feed('x64', { files: [] }), feed('arm64')]), /files/);
-  const portable = feed('x64'); portable.files[0].url = 'Nami-Portable-x64.exe';
+  const portable = feed('x64'); portable.files[0].url = 'Bond-Portable-x64.exe';
   assert.throws(() => mergeFeeds([portable, feed('arm64')]), /x64/);
 });
 
@@ -77,7 +77,7 @@ const sha512 = (buf) => createHash('sha512').update(buf).digest('base64');
 function built(root, arch, bytes, version = '0.6.0') {
   const dir = path.join(root, arch);
   fs.mkdirSync(dir, { recursive: true });
-  const name = `Nami-Setup-${arch}.exe`;
+  const name = `Bond-Setup-${arch}.exe`;
   fs.writeFileSync(path.join(dir, name), bytes);
   fs.writeFileSync(path.join(dir, 'latest.yml'), yaml.dump({
     version, files: [{ url: name, sha512: sha512(bytes), size: bytes.length }], path: name, sha512: sha512(bytes), releaseDate: '2026-09-21T10:00:00.000Z',
@@ -85,7 +85,7 @@ function built(root, arch, bytes, version = '0.6.0') {
   return dir;
 }
 
-const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nami-feed-'));
+const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'bond-feed-'));
 
 test('two build folders become one feed that matches the installers beside it', () => {
   const root = scratch();
@@ -93,7 +93,7 @@ test('two build folders become one feed that matches the installers beside it', 
   const out = path.join(root, 'latest.yml');
   mergeFolders({ dirs, out, version: '0.6.0' });
   const doc = yaml.load(fs.readFileSync(out, 'utf8'));
-  assert.deepEqual(doc.files.map((f) => f.url), ['Nami-Setup-x64.exe', 'Nami-Setup-arm64.exe']);
+  assert.deepEqual(doc.files.map((f) => f.url), ['Bond-Setup-x64.exe', 'Bond-Setup-arm64.exe']);
   assert.deepEqual(checkFeed(doc, dirs, '0.6.0'), []);
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -101,8 +101,8 @@ test('two build folders become one feed that matches the installers beside it', 
 test('an installer that changed after its hash was written is caught', () => {
   const root = scratch();
   const dirs = [built(root, 'x64', Buffer.from('intel installer')), built(root, 'arm64', Buffer.from('arm installer'))];
-  fs.appendFileSync(path.join(dirs[1], 'Nami-Setup-arm64.exe'), 'signed afterwards');
-  assert.throws(() => mergeFolders({ dirs, out: path.join(root, 'latest.yml'), version: '0.6.0' }), /Nami-Setup-arm64\.exe/);
+  fs.appendFileSync(path.join(dirs[1], 'Bond-Setup-arm64.exe'), 'signed afterwards');
+  assert.throws(() => mergeFolders({ dirs, out: path.join(root, 'latest.yml'), version: '0.6.0' }), /Bond-Setup-arm64\.exe/);
   assert.equal(fs.existsSync(path.join(root, 'latest.yml')), false, 'nothing is written when the check fails');
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -118,7 +118,7 @@ test('a listed installer that is not there is caught', () => {
   const root = scratch();
   const dirs = [built(root, 'x64', Buffer.from('a')), built(root, 'arm64', Buffer.from('b'))];
   const doc = mergeFeeds(dirs.map((d) => yaml.load(fs.readFileSync(path.join(d, 'latest.yml'), 'utf8'))));
-  fs.rmSync(path.join(dirs[0], 'Nami-Setup-x64.exe'));
-  assert.match(checkFeed(doc, dirs, '0.6.0').join('\n'), /Nami-Setup-x64\.exe.*not/);
+  fs.rmSync(path.join(dirs[0], 'Bond-Setup-x64.exe'));
+  assert.match(checkFeed(doc, dirs, '0.6.0').join('\n'), /Bond-Setup-x64\.exe.*not/);
   fs.rmSync(root, { recursive: true, force: true });
 });

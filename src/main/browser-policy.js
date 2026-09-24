@@ -82,7 +82,7 @@ function loadFailureMessage({ code, description, failedUrl, currentUrl }) {
   return text ? 'This page could not load (' + text + ').' : 'This page could not load.';
 }
 
-// What a Nami tab calls itself. Chromium's default string names the framework
+// What a Bond tab calls itself. Chromium's default string names the framework
 // — "Electron/43.3.0" — and Google reads that as an embedded browser and will
 // not finish a "Sign in with Google" in one; Canva's callback then sits blank.
 // Every browser built on this engine ships the same string with that token

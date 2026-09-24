@@ -1,4 +1,4 @@
-// Nami — a small markdown renderer and a matching highlighter.
+// Bond — a small markdown renderer and a matching highlighter.
 //
 // Two exits from the same tokeniser:
 //   renderMarkdown(text)    → real HTML for the editor's Read tab
@@ -55,7 +55,7 @@ export function docHrefTarget(href, docPath, platform = currentPlatform()) {
 // images. It cannot share INLINE — the underlay's group order is part of its
 // contract — so the image-aware alternation lives here. An image only becomes
 // an <img> when the caller's resolveImage approves the src (the Read tab maps
-// doc-relative paths through nami-doc://); with no resolver only data: URIs
+// doc-relative paths through bond-doc://); with no resolver only data: URIs
 // render, everything else stays a link — a card never fetches on its own.
 // Emphasis recurses into its own content — `**[title](url)**` is a bold LINK
 // (found literal in a real Notion reply) — through a fresh regex each level:

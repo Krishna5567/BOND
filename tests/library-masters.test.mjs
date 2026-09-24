@@ -15,7 +15,7 @@ function write(p, text) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs
 function endsWith(file, ...tail) { assert.ok(file.endsWith(path.join(...tail)), `${file} does not end with ${path.join(...tail)}`); }
 
 before(() => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dainami-masters-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bond-masters-'));
   home = path.join(root, 'home'); project = path.join(root, 'proj');
   write(path.join(project, 'agents/release-scribe.md'),
     '---\nname: release-scribe\ndescription: Release notes.\ntools: Read\n---\n\nWrite the notes.\n');
@@ -35,7 +35,7 @@ test('a delivered master is one row — the master — never six', () => {
 test('the copies really landed, marker and all', () => {
   for (const rel of ['.claude/agents/release-scribe.md', '.opencode/agents/release-scribe.md', '.gemini/agents/release-scribe.md', '.kimi-code/agents/release-scribe.md']) {
     const text = fs.readFileSync(path.join(project, rel), 'utf8');
-    assert.match(text, /made by Nami from agents\/release-scribe\.md/, rel);
+    assert.match(text, /made by Bond from agents\/release-scribe\.md/, rel);
   }
   assert.match(fs.readFileSync(path.join(project, '.codex/agents/release-scribe.toml'), 'utf8'), /developer_instructions/);
 });
@@ -53,5 +53,5 @@ test('createItem writes a neutral master for platform project', () => {
   endsWith(res.filePath, 'agents', 'fact-checker.md');
   const text = fs.readFileSync(res.filePath, 'utf8');
   assert.match(text, /name: fact-checker/);
-  assert.ok(!text.includes('made by Nami'), 'a master is nobody\'s copy');
+  assert.ok(!text.includes('made by Bond'), 'a master is nobody\'s copy');
 });

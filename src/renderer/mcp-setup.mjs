@@ -1,6 +1,6 @@
 // Library MCP connect sheets. Injected deps so parent wiring in app.js is a
 // handful of calls; this file owns click → key → connected and the guided
-// Gmail/Drive session. Nami Browser is not a catalog entry and is never
+// Gmail/Drive session. Bond Browser is not a catalog entry and is never
 // written to connections.json from here.
 
 import { knowsCopy } from './receivers.mjs';
@@ -11,16 +11,16 @@ export const CONNECT_OVERLAYS = new Set([
 ]);
 
 export function catalogServices(catalog) {
-  return (catalog || []).filter((s) => s && s.id !== 'nami-browser');
+  return (catalog || []).filter((s) => s && s.id !== 'bond-browser' && s.id !== 'nami-browser');
 }
 
 // One line: the pty seeder types this then presses Enter.
 export function guidedSetupSeed(svc) {
-  return `Walk me through connecting ${svc.name} step by step (${svc.docs}). Do every step you can yourself, ask me only when a browser sign-in needs me, and when it works register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`;
+  return `Walk me through connecting ${svc.name} step by step (${svc.docs}). Do every step you can yourself, ask me only when a browser sign-in needs me, and when it works register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Bond copies it to every installed agent's own config from there. Then tell me what tools it exposes.`;
 }
 
 export function customSetupSeed(text) {
-  return `Build an MCP connector for this: ${String(text || '').trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Nami copies it to every installed agent's own config from there. Then tell me what tools it exposes.`;
+  return `Build an MCP connector for this: ${String(text || '').trim()}. When it works, register it for this project by adding one entry to connections.json at the project root, under the standard "mcpServers" key (create the file if it is missing) — Bond copies it to every installed agent's own config from there. Then tell me what tools it exposes.`;
 }
 
 export function connectDoneView(result, svc) {
@@ -84,7 +84,7 @@ export function connectDoneHtml({ svc, result, esc }) {
 
 // What a PC is missing for an install, in the sheet that was about to start it:
 // the sentence, then each command on its own line, selectable in one click like
-// every other command Nami shows. Null in, nothing out — which is every Mac.
+// every other command Bond shows. Null in, nothing out — which is every Mac.
 export function prereqNoteHtml(prereq, esc) {
   if (!prereq) return '';
   return `<p class="setup-copy">${esc(prereq.message)}</p>`
